@@ -44,7 +44,7 @@ class SiteTests(unittest.TestCase):
         self.assertIn('data-scene="2"', page)
         self.assertIn('data-motion', page)
         self.assertIn('tabindex="0"', page)
-        for path in ['/static/experience.js', '/static/showroom.js',
+        for path in ['/static/experience.js', '/static/showroom.js', '/static/adventure.js', '/static/adventure-data.js',
                      '/static/vendor/three/three.module.min.js',
                      '/static/vendor/three/three.core.min.js']:
             response = self.client.get(path)

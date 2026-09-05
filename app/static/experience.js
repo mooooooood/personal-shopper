@@ -9,7 +9,7 @@ const labels = [
 ];
 let viewer;
 let selected = 0;
-function select(index) {
+function select(index, announce = true) {
   selected = index;
   tabs.forEach((tab, i) => tab.setAttribute('aria-pressed', String(i === index)));
   stage.dataset.active = String(index);
@@ -18,6 +18,7 @@ function select(index) {
   document.querySelector('[data-scene-caption]').textContent = labels[index][2];
   document.querySelector('[data-counter]').textContent = `0${index + 1} / 03`;
   viewer?.select(index);
+  if (announce) document.dispatchEvent(new CustomEvent("showroom:world", {detail:index}));
 }
 tabs.forEach((tab, index) => tab.addEventListener('click', () => select(index)));
 const toggle = document.querySelector('[data-motion]');
@@ -64,3 +65,5 @@ if ('IntersectionObserver' in window && !reducedMotion.matches) {
     el.classList.add('reveal'); observer.observe(el);
   });
 }
+
+document.addEventListener("adventure:world", e => { if (Number.isInteger(e.detail) && labels[e.detail]) select(e.detail, false); });

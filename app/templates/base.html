@@ -6,11 +6,11 @@
 <meta name="description" content="{% block description %}{{ site.description }}{% endblock %}">
 <meta name="theme-color" content="#101113">
 {% if base_url %}<link rel="canonical" href="{{ base_url }}{% block canonical %}/{% endblock %}">{% endif %}
-<link rel="stylesheet" href="/static/style.css?v=3d1">
+<link rel="stylesheet" href="/static/style.css?v=explore2">
 </head>
 <body>
 <a class="skip" href="#main">跳转到正文</a>
-<header class="header wrap"><a class="brand" href="/">{{ site.brand }}</a><nav aria-label="主导航"><a href="/#products">产品系列</a><a href="/#about">关于我们</a><a class="nav-contact" href="/#contact">联系交流 <span>↗</span></a></nav></header>
+<header class="header wrap"><a class="brand" href="/">{{ site.brand }}</a><nav aria-label="主导航"><a href="/#products">产品系列</a><a href="/#adventure">兴趣探索</a><a class="nav-contact" href="/#contact">联系交流 <span>↗</span></a></nav></header>
 {% block content %}{% endblock %}
 <footer class="wrap footer"><a class="brand" href="/">{{ site.brand }}</a><span>{{ site.tagline }}</span><a href="/#contact">期待与你相识 ↗</a></footer>
 {% block scripts %}{% endblock %}
