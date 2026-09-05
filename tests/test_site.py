@@ -1,3 +1,4 @@
+import html
 import os
 import tempfile
 import importlib
@@ -26,7 +27,7 @@ class SiteTests(unittest.TestCase):
             self.assertIn('/products/' + product['slug'], response.text)
             detail = self.client.get('/products/' + product['slug'])
             self.assertEqual(detail.status_code, 200)
-            self.assertIn(product['name'], detail.text)
+            self.assertIn(product['name'], html.unescape(detail.text))
 
     def test_missing_pages_and_private_files(self):
         for path in ['/products/missing', '/missing', '/.env', '/data/site.json', '/data/site.sqlite3', '/docs', '/static/missing.css']:
@@ -39,19 +40,16 @@ class SiteTests(unittest.TestCase):
         self.assertIn('max-age', response.headers['cache-control'])
         self.assertIn("frame-ancestors 'none'", self.client.get('/').headers['content-security-policy'])
 
-    def test_3d_assets_and_accessible_controls(self):
+    def test_sourcing_page_and_script(self):
         page = self.client.get('/').text
-        self.assertIn('data-scene="2"', page)
-        self.assertIn('data-motion', page)
-        self.assertIn('tabindex="0"', page)
-        for path in ['/static/experience.js', '/static/showroom.js', '/static/adventure.js', '/static/adventure-data.js',
-                     '/static/vendor/three/three.module.min.js',
-                     '/static/vendor/three/three.core.min.js']:
-            response = self.client.get(path)
-            self.assertEqual(response.status_code, 200)
-            self.assertIn('javascript', response.headers['content-type'])
-        module = self.client.get('/static/showroom.js').text
-        self.assertIn("./vendor/three/three.module.min.js", module)
+        self.assertIn('lang="en"', page)
+        self.assertIn('Something else?', page)
+        self.assertIn('id="request-message"', page)
+        self.assertNotIn('adventure.js', page)
+        self.assertNotIn('showroom.js', page)
+        response = self.client.get('/static/sourcing.js')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('javascript', response.headers['content-type'])
 
     def test_escape_content(self):
         rendered = main.render('product.html', product={**main.SITE['products'][0], 'name': '<script>alert(1)</script>'})
@@ -65,7 +63,7 @@ class SiteTests(unittest.TestCase):
                 response = client.get('/sitemap.xml')
                 self.assertEqual(response.status_code, 200)
                 urls = ET.fromstring(response.text)
-                self.assertEqual(len(urls), 4)
+                self.assertEqual(len(urls), 1 + len(main.SITE['products']))
                 self.assertIn('https://shop.example.com/sitemap.xml', client.get('/robots.txt').text)
         importlib.reload(main)
 

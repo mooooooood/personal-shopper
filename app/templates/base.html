@@ -1,17 +1,1 @@
-<!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}{{ site.brand }} · {{ site.tagline }}{% endblock %}</title>
-<meta name="description" content="{% block description %}{{ site.description }}{% endblock %}">
-<meta name="theme-color" content="#101113">
-{% if base_url %}<link rel="canonical" href="{{ base_url }}{% block canonical %}/{% endblock %}">{% endif %}
-<link rel="stylesheet" href="/static/style.css?v=explore2">
-</head>
-<body>
-<a class="skip" href="#main">跳转到正文</a>
-<header class="header wrap"><a class="brand" href="/">{{ site.brand }}</a><nav aria-label="主导航"><a href="/#products">产品系列</a><a href="/#adventure">兴趣探索</a><a class="nav-contact" href="/#contact">联系交流 <span>↗</span></a></nav></header>
-{% block content %}{% endblock %}
-<footer class="wrap footer"><a class="brand" href="/">{{ site.brand }}</a><span>{{ site.tagline }}</span><a href="/#contact">期待与你相识 ↗</a></footer>
-{% block scripts %}{% endblock %}
-</body></html>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{% block title %}{{ site.brand }} · China sourcing & personal shopping{% endblock %}</title><meta name="description" content="{% block description %}Your personal buying partner in China. Send a product link or sourcing request to discuss purchasing and shipping.{% endblock %}"><meta name="theme-color" content="#f8f7f3">{% if base_url %}<link rel="canonical" href="{{ base_url }}{% block canonical %}/{% endblock %}">{% endif %}<link rel="stylesheet" href="/static/style.css?v=sourcing1"></head><body><a class="skip" href="#main">Skip to content</a><header class="header wrap"><a class="brand" href="/">{{ site.brand }}<small>YOUR BUYING PARTNER IN CHINA</small></a><nav aria-label="Main navigation"><a href="/#categories">What we source</a><a href="/#process">How it works</a><a class="nav-contact" href="/#request">Get a quote ↗</a></nav></header>{% block content %}{% endblock %}<footer class="wrap footer"><a class="brand" href="/">{{ site.brand }}</a><span>From China. For you.</span><a href="/#contact">Let’s talk ↗</a></footer>{% block scripts %}{% endblock %}</body></html>

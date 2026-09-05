@@ -52,6 +52,31 @@ def save(connection, site):
                           [(p['slug'], i, json.dumps(p, ensure_ascii=False)) for i, p in enumerate(site['products'])])
 
 
+def migrate_sourcing(connection):
+    """One-time refresh of original demo content; preserve user edits and contacts."""
+    connection.execute('CREATE TABLE IF NOT EXISTS content_migrations(name TEXT PRIMARY KEY)')
+    if connection.execute('SELECT 1 FROM content_migrations WHERE name=?', ('sourcing-v1',)).fetchone():
+        return
+    legacy = json.loads((ROOT / 'data/legacy-site.json').read_text(encoding='utf-8'))
+    fresh = json.loads(SEED.read_text(encoding='utf-8'))
+    settings = json.loads(connection.execute('SELECT content FROM site_settings WHERE id=1').fetchone()[0])
+    for key in ('tagline', 'description', 'hero_title', 'hero_note', 'about', 'demo'):
+        if settings.get(key) == legacy.get(key):
+            settings[key] = fresh[key]
+    if settings['contact'].get('hours') == legacy['contact']['hours']:
+        settings['contact']['hours'] = fresh['contact']['hours']
+    connection.execute('UPDATE site_settings SET content=? WHERE id=1', (json.dumps(settings, ensure_ascii=False),))
+    for product in legacy['products']:
+        row = connection.execute('SELECT content FROM products WHERE slug=?', (product['slug'],)).fetchone()
+        if row and json.loads(row[0]) == product:
+            connection.execute('DELETE FROM products WHERE slug=?', (product['slug'],))
+    position = connection.execute('SELECT COALESCE(MAX(position), -1) FROM products').fetchone()[0] + 1
+    for i, product in enumerate(fresh['products']):
+        connection.execute('INSERT OR IGNORE INTO products(slug, position, content) VALUES(?, ?, ?)',
+                           (product['slug'], position+i, json.dumps(product, ensure_ascii=False)))
+    connection.execute('INSERT INTO content_migrations(name) VALUES(?)', ('sourcing-v1',))
+
+
 def initialize(path=None):
     path = Path(path) if path is not None else database_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -62,6 +87,7 @@ def initialize(path=None):
         connection.execute('CREATE TABLE IF NOT EXISTS products(slug TEXT PRIMARY KEY, position INTEGER NOT NULL, content TEXT NOT NULL)')
         if connection.execute('SELECT 1 FROM site_settings WHERE id=1').fetchone() is None:
             save(connection, json.loads(SEED.read_text(encoding='utf-8')))
+        migrate_sourcing(connection)
     return path
 
 

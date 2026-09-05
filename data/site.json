@@ -1,62 +1,137 @@
 {
   "brand": "PERSONAL SHOPPER",
-  "tagline": "为热爱，找到好装备。",
-  "description": "PERSONAL SHOPPER 代购产品展示：健身器械、钓鱼竿与电吉他等乐器。了解装备方向，直接沟通选购需求。",
-  "demo": true,
-  "hero_title": "你的热爱，\n值得好装备。",
-  "hero_note": "从训练场，到水边，再到舞台。\n帮你寻找适合自己的运动与音乐装备。",
-  "about": "PERSONAL SHOPPER 是你的装备代购窗口，关注健身器械、钓鱼装备和电吉他等乐器。你可以告诉我们想要的品牌、型号、预算和使用场景，我们再沟通产品细节、采购可行性、报价与交付安排。具体信息以咨询确认结果为准。",
+  "tagline": "Your personal shopper in China.",
+  "description": "Source products from China with a personal buying partner. Send a product link, photo reference or sourcing brief to discuss availability, pricing and shipping.",
+  "demo": false,
+  "hero_title": "Found it in China?\nLet’s make it yours.",
+  "hero_note": "From a single find to a business order.\nSend us what you’re looking for. We’ll help with the next steps.",
+  "about": "We help overseas customers explore and buy products from China. Bring a product link, a photo reference or a clear idea. We can discuss sourcing, seller communication, purchasing and shipping arrangements around your needs.",
   "contact": {
     "email": "",
     "phone": "",
     "wechat": "",
-    "hours": "周一至周五 · 09:00—18:00",
+    "hours": "Monday–Friday · 09:00–18:00 China time (UTC+8)",
     "address": ""
   },
   "products": [
     {
-      "slug": "fitness-equipment",
-      "name": "健身器械",
-      "category": "TRAIN / 力量训练",
+      "slug": "home-living",
+      "name": "Home & living",
+      "category": "SOURCING CATEGORY",
       "label": "01",
-      "summary": "从居家训练到进阶力量，找到适合你的训练装备。",
-      "description": "可咨询哑铃、训练凳及其他健身器械。请提供训练目标、可用空间、意向品牌与预算，我们将据此沟通可采购的型号及具体规格。",
+      "summary": "Furniture, lighting, kitchenware and the little things that make a space yours.",
+      "description": "Furniture, lighting, kitchenware and the little things that make a space yours. Send a link or reference and we will check whether we can source it. Product availability, seller details, fees and delivery options are confirmed before purchase.",
       "image": "",
       "specs": {
-        "选购方向": "力量训练 / 居家健身",
-        "咨询前准备": "使用空间、目标、预算",
-        "品牌与型号": "按需求咨询",
-        "报价与交付": "确认具体产品后沟通"
+        "What to share": "Dimensions, materials, finish and destination",
+        "Order quantity": "Tell us what you need",
+        "Pricing": "Quoted for your request",
+        "Shipping": "Confirmed by product and destination"
       }
     },
     {
-      "slug": "fishing-rods",
-      "name": "钓鱼竿",
-      "category": "EXPLORE / 水边时光",
+      "slug": "fashion-accessories",
+      "name": "Fashion & accessories",
+      "category": "SOURCING CATEGORY",
       "label": "02",
-      "summary": "从第一次抛投到下一次出钓，为你的水域选一支竿。",
-      "description": "可咨询路亚竿及其他钓鱼竿。不同水域、目标鱼种与钓法对应不同规格，欢迎带着你的使用习惯、意向型号和预算与我们交流。",
+      "summary": "Clothing, bags, footwear and accessories for your everyday style.",
+      "description": "Clothing, bags, footwear and accessories for your everyday style. Send a link or reference and we will check whether we can source it. Product availability, seller details, fees and delivery options are confirmed before purchase.",
       "image": "",
       "specs": {
-        "选购方向": "钓鱼竿 / 路亚装备",
-        "咨询前准备": "钓法、水域、目标鱼种",
-        "长度与调性": "按型号确认",
-        "报价与交付": "确认具体产品后沟通"
+        "What to share": "Size, color, material and quantity",
+        "Order quantity": "Tell us what you need",
+        "Pricing": "Quoted for your request",
+        "Shipping": "Confirmed by product and destination"
       }
     },
     {
-      "slug": "electric-guitars",
-      "name": "电吉他与乐器",
-      "category": "PLAY / 自由发声",
+      "slug": "electronics",
+      "name": "Electronics & accessories",
+      "category": "SOURCING CATEGORY",
       "label": "03",
-      "summary": "寻找属于你的音色，让每一次练习更接近心中的声音。",
-      "description": "可咨询电吉他及相关乐器装备。请提供意向品牌、型号、演奏风格和预算；具体配置、附件、成色与运输安排在采购前逐项确认。",
+      "summary": "Devices, peripherals, cables and accessories for work and everyday life.",
+      "description": "Devices, peripherals, cables and accessories for work and everyday life. Send a link or reference and we will check whether we can source it. Product availability, seller details, fees and delivery options are confirmed before purchase.",
       "image": "",
       "specs": {
-        "选购方向": "电吉他 / 乐器装备",
-        "咨询前准备": "演奏风格、型号、预算",
-        "配置与附件": "按具体产品确认",
-        "报价与交付": "确认具体产品后沟通"
+        "What to share": "Model, voltage, plug type and destination",
+        "Order quantity": "Tell us what you need",
+        "Pricing": "Quoted for your request",
+        "Shipping": "Confirmed by product and destination"
+      }
+    },
+    {
+      "slug": "sports-outdoors",
+      "name": "Sports & outdoors",
+      "category": "SOURCING CATEGORY",
+      "label": "04",
+      "summary": "Training gear, fishing equipment, camping supplies and outdoor essentials.",
+      "description": "Training gear, fishing equipment, camping supplies and outdoor essentials. Send a link or reference and we will check whether we can source it. Product availability, seller details, fees and delivery options are confirmed before purchase.",
+      "image": "",
+      "specs": {
+        "What to share": "Use, specifications, dimensions and quantity",
+        "Order quantity": "Tell us what you need",
+        "Pricing": "Quoted for your request",
+        "Shipping": "Confirmed by product and destination"
+      }
+    },
+    {
+      "slug": "music-hobbies",
+      "name": "Music & hobbies",
+      "category": "SOURCING CATEGORY",
+      "label": "05",
+      "summary": "Musical instruments, creative tools and supplies for what you love doing.",
+      "description": "Musical instruments, creative tools and supplies for what you love doing. Send a link or reference and we will check whether we can source it. Product availability, seller details, fees and delivery options are confirmed before purchase.",
+      "image": "",
+      "specs": {
+        "What to share": "Model, configuration, condition and accessories",
+        "Order quantity": "Tell us what you need",
+        "Pricing": "Quoted for your request",
+        "Shipping": "Confirmed by product and destination"
+      }
+    },
+    {
+      "slug": "auto-tools",
+      "name": "Tools & auto accessories",
+      "category": "SOURCING CATEGORY",
+      "label": "06",
+      "summary": "Workshop tools, hardware and accessories matched to your requirements.",
+      "description": "Workshop tools, hardware and accessories matched to your requirements. Send a link or reference and we will check whether we can source it. Product availability, seller details, fees and delivery options are confirmed before purchase.",
+      "image": "",
+      "specs": {
+        "What to share": "Part number, compatibility, specifications and quantity",
+        "Order quantity": "Tell us what you need",
+        "Pricing": "Quoted for your request",
+        "Shipping": "Confirmed by product and destination"
+      }
+    },
+    {
+      "slug": "gifts-stationery",
+      "name": "Gifts & stationery",
+      "category": "SOURCING CATEGORY",
+      "label": "07",
+      "summary": "Desk essentials, packaging, gifts and useful finds for your next project.",
+      "description": "Desk essentials, packaging, gifts and useful finds for your next project. Send a link or reference and we will check whether we can source it. Product availability, seller details, fees and delivery options are confirmed before purchase.",
+      "image": "",
+      "specs": {
+        "What to share": "Reference images, materials, quantity and deadline",
+        "Order quantity": "Tell us what you need",
+        "Pricing": "Quoted for your request",
+        "Shipping": "Confirmed by product and destination"
+      }
+    },
+    {
+      "slug": "business-sourcing",
+      "name": "Business sourcing",
+      "category": "SOURCING CATEGORY",
+      "label": "08",
+      "summary": "Wholesale enquiries, custom requirements and repeat purchasing requests.",
+      "description": "Wholesale enquiries, custom requirements and repeat purchasing requests. Send a link or reference and we will check whether we can source it. Product availability, seller details, fees and delivery options are confirmed before purchase.",
+      "image": "",
+      "specs": {
+        "What to share": "Specifications, target quantity, budget and destination",
+        "Order quantity": "Tell us what you need",
+        "Pricing": "Quoted for your request",
+        "Shipping": "Confirmed by product and destination"
       }
     }
   ]

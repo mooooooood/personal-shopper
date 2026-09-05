@@ -55,3 +55,24 @@ class DatabaseTests(unittest.TestCase):
             backup(target, self.path)
         with self.assertRaises(FileExistsError):
             backup(self.path, self.path)
+
+    def test_rebrand_preserves_custom_data_and_runs_once(self):
+        from app.database import SEED, ROOT
+        legacy = json.loads((ROOT / 'data/legacy-site.json').read_text())
+        initialize(self.path)
+        legacy['contact']['email'] = 'real@example.com'
+        legacy['products'][0]['description'] = 'My custom description'
+        self.write(legacy)
+        import_site(self.source, self.path)
+        with sqlite3.connect(self.path) as conn:
+            conn.execute('DELETE FROM content_migrations')
+        upgraded = load_site(self.path)
+        self.assertEqual(upgraded['contact']['email'], 'real@example.com')
+        self.assertEqual(upgraded['hero_title'], json.loads(SEED.read_text())['hero_title'])
+        products = {p['slug']: p for p in upgraded['products']}
+        self.assertEqual(products['fitness-equipment']['description'], 'My custom description')
+        self.assertNotIn('fishing-rods', products)
+        self.assertIn('home-living', products)
+        self.write({**upgraded, 'products': []})
+        import_site(self.source, self.path)
+        self.assertEqual(load_site(self.path)['products'], [])
