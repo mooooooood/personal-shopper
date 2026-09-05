@@ -210,3 +210,19 @@ curl -f http://127.0.0.1:8000/healthz
 ```
 
 当前实现使用 SQLite 默认回滚日志模式；不要自行改变日志模式后继续照搬文件恢复步骤。恢复前的副本也应选未使用过的文件名。
+
+## 互动 3D 展厅（新版首页）
+
+首页采用 Three.js 0.180.0，实现哑铃、鱼竿、电吉他三个可切换的概念模型。支持鼠标/触摸水平拖动、键盘方向键旋转与倾斜、Home 重置、自动旋转暂停；产品卡片带鼠标悬停透视和滚动入场效果。概念模型不代表具体在售型号。
+
+Three.js 的运行文件及 MIT 许可证保存在 `app/static/vendor/three/`，不依赖外部 CDN。服务器仍只需要 Python + Nginx，无需安装 Node.js 或 3D 渲染服务。渲染由访客浏览器完成：像素比最多 1.5、自动旋转最多约 30 FPS、展厅离开视口或浏览器进入后台时暂停。系统设置减少动态效果时默认不自动旋转，仍可手动操作。不支持 WebGL2、加载失败或图形上下文丢失时退回文字展示，产品详情和联系方式仍可访问。
+
+更新服务器时，仅需覆盖 `app/templates/`、`app/static/`（包含 vendor 文件夹），然后重启：
+
+```sh
+sudo systemctl restart personal-shopper
+```
+
+无需重新导入数据库。不要覆盖 `.env`、数据库、你已上传的产品图片或自定义资料。如果使用 Git 部署，可正常 `git pull --ff-only` 后重启。CSS 与入口脚本带版本查询参数，首次升级可强制刷新浏览器。
+
+Three.js 官方安装说明：https://threejs.org/manual/en/installation.html

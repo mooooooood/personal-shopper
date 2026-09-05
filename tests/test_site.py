@@ -39,6 +39,20 @@ class SiteTests(unittest.TestCase):
         self.assertIn('max-age', response.headers['cache-control'])
         self.assertIn("frame-ancestors 'none'", self.client.get('/').headers['content-security-policy'])
 
+    def test_3d_assets_and_accessible_controls(self):
+        page = self.client.get('/').text
+        self.assertIn('data-scene="2"', page)
+        self.assertIn('data-motion', page)
+        self.assertIn('tabindex="0"', page)
+        for path in ['/static/experience.js', '/static/showroom.js',
+                     '/static/vendor/three/three.module.min.js',
+                     '/static/vendor/three/three.core.min.js']:
+            response = self.client.get(path)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('javascript', response.headers['content-type'])
+        module = self.client.get('/static/showroom.js').text
+        self.assertIn("./vendor/three/three.module.min.js", module)
+
     def test_escape_content(self):
         rendered = main.render('product.html', product={**main.SITE['products'][0], 'name': '<script>alert(1)</script>'})
         self.assertNotIn('<script>', rendered)
