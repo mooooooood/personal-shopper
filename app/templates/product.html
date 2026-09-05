@@ -1,0 +1,5 @@
+{% extends 'base.html' %}
+{% block title %}{{ product.name }} · {{ site.brand }}{% endblock %}
+{% block description %}{{ product.summary }}{% endblock %}
+{% block canonical %}/products/{{ product.slug }}{% endblock %}
+{% block content %}<main id="main" class="wrap detail"><a class="back" href="/#products">← 返回产品系列</a><div class="detail-grid"><div class="product-image tone-1">{% if product.image %}<img src="{{ product.image }}" alt="{{ product.name }}" width="640" height="560">{% else %}<span class="image-label">{{ product.category }}</span><span class="product-number">{{ product.label }}</span><span class="image-placeholder">产品图片待添加</span>{% endif %}</div><article><p class="eyebrow">{{ product.category }}</p><h1>{{ product.name }}</h1><p class="lead">{{ product.summary }}</p><p>{{ product.description }}</p><dl>{% for key, value in product.specs.items() %}<div><dt>{{ key }}</dt><dd>{{ value }}</dd></div>{% endfor %}</dl><a class="button" href="/#contact">咨询这款产品 <span>↗</span></a>{% if site.demo %}<p class="demo">本页为产品方向介绍，不代表具体型号现货。</p>{% endif %}</article></div></main>{% endblock %}

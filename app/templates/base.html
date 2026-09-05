@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ site.brand }} · {{ site.tagline }}{% endblock %}</title>
+<meta name="description" content="{% block description %}{{ site.description }}{% endblock %}">
+<meta name="theme-color" content="#f5f3ec">
+{% if base_url %}<link rel="canonical" href="{{ base_url }}{% block canonical %}/{% endblock %}">{% endif %}
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<a class="skip" href="#main">跳转到正文</a>
+<header class="header wrap"><a class="brand" href="/">{{ site.brand }}</a><nav aria-label="主导航"><a href="/#products">产品系列</a><a href="/#about">关于我们</a><a class="nav-contact" href="/#contact">联系交流 <span>↗</span></a></nav></header>
+{% block content %}{% endblock %}
+<footer class="wrap footer"><a class="brand" href="/">{{ site.brand }}</a><span>{{ site.tagline }}</span><a href="/#contact">期待与你相识 ↗</a></footer>
+</body></html>
