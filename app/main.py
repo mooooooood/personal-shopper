@@ -1,5 +1,4 @@
-"""Small, server-rendered product catalogue. Edit data/site.json then restart."""
-import json
+"""Small, server-rendered product catalogue. Content is stored in SQLite and cached until restart."""
 import os
 from pathlib import Path
 from urllib.parse import quote
@@ -10,8 +9,10 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from app.database import load_site
+
 ROOT = Path(__file__).resolve().parent.parent
-SITE = json.loads((ROOT / 'data/site.json').read_text(encoding='utf-8'))
+SITE = load_site()
 BASE_URL = os.getenv('SITE_URL', '').rstrip('/')
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 app.mount('/static', StaticFiles(directory=ROOT / 'app/static'), name='static')

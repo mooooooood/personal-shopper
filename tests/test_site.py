@@ -1,9 +1,18 @@
+import os
+import tempfile
 import importlib
 import unittest
 import xml.etree.ElementTree as ET
 from unittest.mock import patch
 from fastapi.testclient import TestClient
+_dbdir = tempfile.TemporaryDirectory()
+_db_env = patch.dict(os.environ, {'DATABASE_PATH': _dbdir.name + '/site.sqlite3'})
+_db_env.start()
 import app.main as main
+
+def tearDownModule():
+    _db_env.stop()
+    _dbdir.cleanup()
 
 class SiteTests(unittest.TestCase):
     def setUp(self):
@@ -20,7 +29,7 @@ class SiteTests(unittest.TestCase):
             self.assertIn(product['name'], detail.text)
 
     def test_missing_pages_and_private_files(self):
-        for path in ['/products/missing', '/missing', '/.env', '/data/site.json', '/docs', '/static/missing.css']:
+        for path in ['/products/missing', '/missing', '/.env', '/data/site.json', '/data/site.sqlite3', '/docs', '/static/missing.css']:
             self.assertEqual(self.client.get(path).status_code, 404, path)
 
     def test_assets_health_and_headers(self):

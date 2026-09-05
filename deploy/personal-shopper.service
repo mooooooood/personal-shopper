@@ -9,6 +9,9 @@ Group=www-data
 WorkingDirectory=/opt/personal-shopper
 EnvironmentFile=/opt/personal-shopper/.env
 Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=DATABASE_PATH=/var/lib/personal-shopper/site.sqlite3
+StateDirectory=personal-shopper
+StateDirectoryMode=0750
 ExecStart=/opt/personal-shopper/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --limit-concurrency 40 --backlog 64 --timeout-keep-alive 5 --no-access-log --proxy-headers --forwarded-allow-ips 127.0.0.1
 Restart=on-failure
 RestartSec=5

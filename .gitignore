@@ -7,3 +7,8 @@ __pycache__/
 .DS_Store
 .pytest_cache/
 *.log
+
+# Runtime databases and SQLite sidecar files
+*.sqlite3*
+*.db
+*.db-*
