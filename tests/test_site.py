@@ -44,6 +44,10 @@ class SiteTests(unittest.TestCase):
         page = self.client.get('/').text
         self.assertIn('lang="en"', page)
         self.assertIn('Something else?', page)
+        self.assertIn('I run this', page)
+        self.assertIn('Who I am', page)
+        self.assertIn('The middleman part?', page)
+        self.assertNotIn('Tell us what', page)
         self.assertIn('id="request-message"', page)
         self.assertNotIn('adventure.js', page)
         self.assertNotIn('showroom.js', page)
