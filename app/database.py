@@ -77,6 +77,27 @@ def migrate_sourcing(connection):
     connection.execute('INSERT INTO content_migrations(name) VALUES(?)', ('sourcing-v1',))
 
 
+def migrate_solo(connection):
+    """Refresh untouched sourcing copy without changing owner-provided information."""
+    if connection.execute('SELECT 1 FROM content_migrations WHERE name=?', ('solo-v1',)).fetchone():
+        return
+    previous = {'tagline': 'Your personal shopper in China.', 'description': 'Source products from China with a personal buying partner. Send a product link, photo reference or sourcing brief to discuss availability, pricing and shipping.', 'hero_title': 'Found it in China?\nLet’s make it yours.', 'hero_note': 'From a single find to a business order.\nSend us what you’re looking for. We’ll help with the next steps.', 'about': 'We help overseas customers explore and buy products from China. Bring a product link, a photo reference or a clear idea. We can discuss sourcing, seller communication, purchasing and shipping arrangements around your needs.'}
+    fresh = json.loads(SEED.read_text(encoding='utf-8'))
+    settings = json.loads(connection.execute('SELECT content FROM site_settings WHERE id=1').fetchone()[0])
+    for key, old in previous.items():
+        if settings.get(key) == old:
+            settings[key] = fresh[key]
+    connection.execute('UPDATE site_settings SET content=? WHERE id=1', (json.dumps(settings, ensure_ascii=False),))
+    for slug, content in connection.execute('SELECT slug, content FROM products').fetchall():
+        product = json.loads(content)
+        if product['description'] == product['summary'] + ' Send a link or reference and we will check whether we can source it. Product availability, seller details, fees and delivery options are confirmed before purchase.':
+            product['description'] = product['summary'] + ' Send me a link or reference and I will check sourcing options for your request. I will discuss the supplier, specifications, my quote and available delivery options with you before purchase.'
+        if product['specs'].get('Order quantity') == 'Tell us what you need':
+            product['specs']['Order quantity'] = 'Tell me what you need'
+        connection.execute('UPDATE products SET content=? WHERE slug=?', (json.dumps(product, ensure_ascii=False), slug))
+    connection.execute('INSERT INTO content_migrations(name) VALUES(?)', ('solo-v1',))
+
+
 def initialize(path=None):
     path = Path(path) if path is not None else database_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -88,6 +109,7 @@ def initialize(path=None):
         if connection.execute('SELECT 1 FROM site_settings WHERE id=1').fetchone() is None:
             save(connection, json.loads(SEED.read_text(encoding='utf-8')))
         migrate_sourcing(connection)
+        migrate_solo(connection)
     return path
 
 
