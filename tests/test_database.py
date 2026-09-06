@@ -76,3 +76,23 @@ class DatabaseTests(unittest.TestCase):
         self.write({**upgraded, 'products': []})
         import_site(self.source, self.path)
         self.assertEqual(load_site(self.path)['products'], [])
+
+    def test_solo_copy_migration_preserves_contacts_and_custom_products(self):
+        current = load_site(self.path)
+        current['hero_title'] = 'Found it in China?\nLet’s make it yours.'
+        current['contact']['email'] = 'owner@example.com'
+        current['about'] = 'My own biography'
+        original_product = current['products'][0]
+        original_product['description'] = 'My edited product description'
+        current['products'][1]['description'] = current['products'][1]['summary'] + ' Send a link or reference and we will check whether we can source it. Product availability, seller details, fees and delivery options are confirmed before purchase.'
+        self.write(current)
+        import_site(self.source, self.path)
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("DELETE FROM content_migrations WHERE name='solo-v1'")
+        upgraded = load_site(self.path)
+        self.assertEqual(upgraded['hero_title'], 'Your person in China.\nFor the things you need.')
+        self.assertEqual(upgraded['contact']['email'], 'owner@example.com')
+        self.assertEqual(upgraded['about'], 'My own biography')
+        self.assertEqual(upgraded['products'][0], original_product)
+        self.assertIn('I will check sourcing options', upgraded['products'][1]['description'])
+        self.assertEqual(load_site(self.path), upgraded)
