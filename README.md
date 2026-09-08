@@ -1,6 +1,21 @@
-# PERSONAL SHOPPER · 轻量代购展示站
+# PERSONAL SHOPPER · 中国商品代购与独立采购贸易
 
-基于 FastAPI 的品牌、产品与联系方式展示网站，面向 1 核 CPU / 1GB RAM / 20GB 磁盘的 Linux 服务器。包括英文代购首页、多品类详情页、响应式布局、404 页面、健康检查与站点地图。
+> Your person in China. For the things you need.
+
+这是一个面向海外买家的英文代购网站。经营者是一位在中国独立工作的一人公司经营者，从中国供应链寻找客户需要的商品，沟通供应商、确认采购细节，并协调国际运输。商品范围以客户需求为起点，家居、服饰、电子、工具、户外和乐器等只是示例方向。
+
+网站坦诚介绍采购与转售的中间商角色，强调直接沟通、跨品类找货和灵活调整。报价会讨论商品价格、利润或约定服务费及运费；具体运输方案按商品与目的地确认。
+
+## 当前网站内容
+
+- **个人介绍**：第一人称说明一人经营的工作方式，首页以一封来自中国的短信介绍自己。
+- **采购范围**：八个示例品类与“Something else?”入口，支持按链接、参考图片或描述提出需求。
+- **合作流程**：提供需求 → 寻找供应商 → 确认报价与细节 → 协调采购和运输。
+- **询价工具**：在浏览器里生成可编辑、可复制的英文消息；配置邮箱后可打开邮件客户端发送。
+- **资料存储**：SQLite 保存品牌、介绍、联系方式、产品及规格，升级会保留自定义资料。
+- **轻量运行**：FastAPI + Jinja2 + SQLite，适配手机和电脑，面向 1 核 CPU / 1GB RAM / 20GB 磁盘服务器。
+
+[首次部署](#ubuntu-2404-部署) · [已有网站升级](#从旧版升级此次不能只更新模板和-static) · [修改资料](#sqlite-内容管理)
 
 ## 要安装的框架与软件
 
@@ -14,7 +29,7 @@
 | Nginx | 域名入口、HTTPS、静态资源服务 |
 | systemd | 后台运行、开机启动、故障重启 |
 
-前端是原生 HTML + CSS；无 Node.js 构建、独立数据库服务、Redis、后台上传服务或 Docker 依赖。生产依赖精确版本见 requirements.txt。页面在进程启动时从 SQLite 读取并渲染缓存，访问时不重复查询数据库或渲染模板。图片由浏览器按需加载。
+前端是原生 HTML + CSS + JavaScript；无 Node.js 构建、独立数据库服务、Redis、后台上传服务或 Docker 依赖。生产依赖精确版本见 requirements.txt。页面在进程启动时从 SQLite 读取并渲染缓存，访问时不重复查询数据库或渲染模板。图片由浏览器按需加载。
 
 ## 本地启动
 
@@ -33,9 +48,9 @@ python3 -m venv .venv
 - `brand`：品牌英文名，当前为 PERSONAL SHOPPER。
 - `hero_title`、`hero_note`、`about`：首页介绍。
 - `contact.email` / `phone` / `wechat` / `address`：填写实际联系方式，空值不展示。邮箱和电话填写后自动生成可点击链接。
-- `products`：产品列表；每个产品需要唯一的英文 `slug`（小写字母、数字、短横线）、名称、分类、简介、介绍、图片及规格。
-- `image`：图片放到 `app/static/images/`，填 `/static/images/fitness.webp` 这样的本站路径。当前使用明确标注的图片待添加区域，未编造商品照片、价格和库存。
-- `demo`：当前 `true` 会显示“具体型号、报价和货期请咨询”的提示。确认信息后可设为 `false`。
+- `products`：默认是八类采购方向，作为需求示例展示；也可维护自己的产品资料。每条需要唯一的英文 `slug`（小写字母、数字、短横线）、名称、分类、简介、介绍、图片字段及规格。
+- `image`：图片可选。文件放到 `app/static/images/`，填 `/static/images/product.webp` 这样的本站路径。留空时首页显示文字卡片，详情页显示“SOURCING ON REQUEST”品类封面。
+- `demo`：当前默认为 `false`；设为 `true` 时，品类详情页会显示“Category overview only. Availability is confirmed for each request.”提示。
 
 推荐 WebP 图片，宽度约 1000px，尽量每张 100–250KB。不要把原始大图和视频堆进服务器。数据库内容导入或模板修改后需重启服务。本地开发使用 `data/site.sqlite3`；systemd 生产服务使用 `/var/lib/personal-shopper/site.sqlite3`，由 StateDirectory 自动创建可写目录。数据库及备份不提交 GitHub。
 
@@ -50,12 +65,12 @@ sudo apt update
 sudo apt install -y python3 python3-venv nginx git
 ```
 
-2. 从私有仓库克隆（使用自己的 GitHub SSH 登录配置，或将项目上传到该目录；不要把令牌写入仓库 URL）：
+2. 从公开仓库克隆（使用 HTTPS，无需配置 GitHub SSH 密钥）：
 
 ```sh
 sudo mkdir -p /opt/personal-shopper
 sudo chown "$(id -un):$(id -gn)" /opt/personal-shopper
-git clone git@github.com:mooooooood/personal-shopper.git /opt/personal-shopper
+git clone https://github.com/mooooooood/personal-shopper.git /opt/personal-shopper
 cd /opt/personal-shopper
 python3 -m venv .venv
 .venv/bin/pip install --no-cache-dir -r requirements.txt
@@ -87,7 +102,7 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-在云服务器安全组放行 80 和 443；保留已有 SSH 管理端口。8000 只监听本机，无需向公网开放。网站只有只读页面，没有留言表单或付款功能。
+在云服务器安全组放行 80 和 443；保留已有 SSH 管理端口。8000 只监听本机，无需向公网开放。询价工具在浏览器内生成消息，由买家复制或通过邮件客户端发送，不自动提交或存储询价；网站没有付款功能。
 
 6. 为已经解析到本机的域名启用 HTTPS：
 
@@ -136,11 +151,11 @@ curl -f http://127.0.0.1:8000/healthz
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-覆盖：首页、所有详情页、404、数据库及私有文件不可访问、样式文件、健康检查、安全响应头、模板转义、自定义域名站点地图，以及数据库首次导入、持久化、无效数据拒绝、事务回滚、备份独立性。
+当前共 12 项测试，覆盖首页、所有详情页、404、数据库及私有文件不可访问、样式文件、健康检查、安全响应头、模板转义、自定义域名站点地图，以及数据库首次导入、持久化、无效数据拒绝、事务回滚、备份独立性和默认文案迁移时的自定义资料保留。
 
 ## 代码托管与网站部署的区别
 
-GitHub 私有仓库保存代码，不运行这个 FastAPI 服务。网站需要按照上面步骤在你的服务器启动。仓库名默认使用 `mooooooood/personal-shopper`；若实际仓库名不同，请替换克隆地址。
+GitHub 公开仓库保存代码，仓库首页展示这份 README。FastAPI 网站按上面的步骤在服务器运行。仓库地址是 https://github.com/mooooooood/personal-shopper 。
 
 ## 官方参考
 
@@ -235,7 +250,7 @@ sudo systemctl restart personal-shopper
 
 首次启动会运行一次 `sourcing-v1` 内容迁移：仅替换仍与旧版默认内容完全相同的文案与三条演示产品；保留已修改的联系方式、品牌和自定义产品，加入八个通用品类。迁移有事务保护并记录执行标志，后续启动不会重复添加；保留下来的自定义中文资料需自行翻译。全新数据库直接使用英文默认内容。
 
-原依赖、systemd 与 Nginx 配置无需变更。11 项 Python 测试包含旧数据迁移、用户编辑保留和迁移仅执行一次的验证。
+原依赖、systemd 与 Nginx 配置无需变更。12 项 Python 测试包含旧数据迁移、用户编辑保留和迁移仅执行一次的验证。
 
 
 ## 个人品牌定位：一人公司 / 独立采购贸易
