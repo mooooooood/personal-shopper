@@ -80,14 +80,14 @@ class MeadowTests(unittest.TestCase):
             model.catch(rabbit["id"])
         self.assertEqual(len(model.basket), 6)
         advance(model, 90)
-        self.assertEqual(model.total_count, 15)
-        self.assertEqual(model.born_count, 3)
-        self.assertEqual(model.pairs, [])
+        self.assertLessEqual(model.total_count + len(model.pairs), 15)
+        self.assertEqual(model.total_count, 12 + model.born_count - model.raided_count)
+        self.assertEqual(len(model.basket), 6)
         while model.basket:
             self.assertIsNotNone(model.release_one())
         advance(model, 20)
-        self.assertEqual(len(model.rabbits), 15)
-        self.assertEqual(model.born_count, 3)
+        self.assertLessEqual(len(model.rabbits) + len(model.pairs), 15)
+        self.assertEqual(model.total_count, 12 + model.born_count - model.raided_count)
 
     def test_carrots_attract_expire_and_reject_invalid_coordinates(self):
         model = Meadow(seed=3, initial_count=1)

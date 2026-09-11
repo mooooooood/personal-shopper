@@ -19,7 +19,8 @@ class Meadow:
     nesting_duration = 2.8
     margin = 28
     pond = {"x": 825, "y": 135, "rx": 114, "ry": 72}
-    schema_version = 1
+    schema_version = 2
+    coats = ("white", "cream", "caramel", "chocolate", "silver", "charcoal", "ginger", "spotted")
 
     def __init__(self, seed=None, *, initial_count=12, max_rabbits=60):
         if type(max_rabbits) is not int or not 1 <= max_rabbits <= 60:
@@ -32,7 +33,10 @@ class Meadow:
         self.receipts = []
         self.time = 0.0
         self.born_count = 0
+        self.raided_count = 0
+        self.encounter = None
         self._next_rabbit_id = self._next_carrot_id = self._next_pair_id = 1
+        self._next_encounter_id = 1
         self._pair_check = 0.0
         self._waypoints = [
             {"x": self.pond["x"] + math.cos(i * math.pi / 8) * self.pond["rx"] * 1.06,
@@ -40,6 +44,7 @@ class Meadow:
             for i in range(16)
         ]
         self.rabbits = [self._make_rabbit(adult=True) for _ in range(initial_count)]
+        self._next_encounter_in = self._between(15, 30)
 
     @property
     def total_count(self):
@@ -124,6 +129,7 @@ class Meadow:
         point = self._safe_point(x, y)
         rabbit = {
             "id": self._next_rabbit_id, **point,
+            "coat": self._random.choice(self.coats),
             "age": self.adult_age + self._between(3, 25) if adult else 0,
             "adult": adult, "state": "idle", "moving": False,
             "hopProgress": 0, "pairProgress": 0,
@@ -244,6 +250,102 @@ class Meadow:
         if self._pair_check <= 0:
             self._pair_rabbits()
             self._pair_check = .5
+        self._advance_encounter(dt)
+
+    def _start_encounter(self, kind=None):
+        # The basket is a refuge. Wildlife never takes the last two on the grass.
+        if self.encounter is not None or len(self.rabbits) <= 2:
+            return False
+        kind = kind or self._random.choice(("eagle", "wolf"))
+        if kind not in ("eagle", "wolf"):
+            raise ValueError("unknown wildlife")
+        if self._random.choice((True, False)):
+            point = self._safe_point(self._random.choice((self.margin, self.width - self.margin)),
+                                     self._between(self.margin, self.height - self.margin))
+        else:
+            point = self._safe_point(self._between(self.margin, self.width - self.margin),
+                                     self._random.choice((self.margin, self.height - self.margin)))
+        target = self._random.choice(self.rabbits)
+        self.encounter = {
+            "id": self._next_encounter_id, "kind": kind, "phase": "warning", **point,
+            "direction": 1 if target["x"] >= point["x"] else -1,
+            "targetId": target["id"], "remaining": 3.0, "carrying": None,
+            "_path": [], "_routeIn": 0.0, "_leaveSpeed": 0.0,
+        }
+        self._next_encounter_id += 1
+        return True
+
+    def _move_wildlife(self, distance):
+        animal = self.encounter
+        while distance > 0 and animal["_path"]:
+            destination = animal["_path"][0]
+            gap = self._distance(animal, destination)
+            if abs(destination["x"] - animal["x"]) > .01:
+                animal["direction"] = 1 if destination["x"] > animal["x"] else -1
+            if gap <= distance:
+                animal.update(destination)
+                animal["_path"].pop(0)
+                distance -= gap
+            else:
+                animal["x"] += (destination["x"] - animal["x"]) / gap * distance
+                animal["y"] += (destination["y"] - animal["y"]) / gap * distance
+                break
+
+    def _leave_encounter(self):
+        animal = self.encounter
+        exits = [self._safe_point(self.margin, animal["y"]),
+                 self._safe_point(self.width - self.margin, animal["y"]),
+                 self._safe_point(animal["x"], self.margin),
+                 self._safe_point(animal["x"], self.height - self.margin)]
+        routes = [self._route_to(animal, point) if animal["kind"] == "wolf" else [point]
+                  for point in exits]
+        def length(route):
+            return sum(self._distance(first, second) for first, second in zip([animal, *route], route))
+        route = min((route for route in routes if route), key=length)
+        animal.update(phase="leaving", remaining=3.0, _path=route,
+                      _routeIn=0.0, _leaveSpeed=length(route) / 3)
+
+    def _advance_encounter(self, dt):
+        if self.encounter is None:
+            self._next_encounter_in = max(0.0, self._next_encounter_in - dt)
+            if self._next_encounter_in <= 0:
+                if not self._start_encounter():
+                    self._next_encounter_in = self._between(35, 70)
+            return
+        animal = self.encounter
+        animal["remaining"] = max(0.0, animal["remaining"] - dt)
+        if animal["phase"] == "leaving":
+            self._move_wildlife(animal["_leaveSpeed"] * dt)
+            if animal["remaining"] <= 0:
+                self.encounter = None
+                self._next_encounter_in = self._between(35, 70)
+            return
+        target = next((rabbit for rabbit in self.rabbits if rabbit["id"] == animal["targetId"]), None)
+        if target is None or len(self.rabbits) <= 2:
+            self._leave_encounter()
+            return
+        if animal["phase"] == "warning":
+            if animal["remaining"] <= 0:
+                animal.update(phase="chasing", remaining=8.0)
+            return
+        if animal["remaining"] <= 0:
+            self._leave_encounter()
+            return
+        animal["_routeIn"] -= dt
+        if animal["kind"] == "eagle":
+            animal["_path"] = [{"x": target["x"], "y": target["y"]}]
+        elif animal["_routeIn"] <= 0 or not animal["_path"]:
+            animal["_path"] = self._route_to(animal, {"x": target["x"], "y": target["y"]})
+            animal["_routeIn"] = .4
+        self._move_wildlife((260 if animal["kind"] == "eagle" else 220) * dt)
+        if self._distance(animal, target) <= 22:
+            pair = next((pair for pair in self.pairs if pair["id"] == target["pairId"]), None)
+            if pair is not None:
+                self._end_pair(pair, interrupted=True)
+            self.rabbits.remove(target)
+            animal["carrying"] = {key: target[key] for key in ("id", "coat", "adult")}
+            self.raided_count += 1
+            self._leave_encounter()
 
     def add_carrot(self, x, y):
         if len(self.carrots) >= 6 or not self._finite(x) or not self._finite(y):
@@ -282,6 +384,8 @@ class Meadow:
         public = lambda rabbit: {key: value for key, value in rabbit.items() if not key.startswith("_")}
         return {"width": self.width, "height": self.height, "maxRabbits": self.max_rabbits,
                 "adultAge": self.adult_age, "time": self.time, "bornCount": self.born_count,
+                "raidedCount": self.raided_count,
+                "encounter": deepcopy(public(self.encounter)) if self.encounter is not None else None,
                 "totalCount": self.total_count, "rabbits": [public(rabbit) for rabbit in self.rabbits],
                 "basket": [public(rabbit) for rabbit in self.basket],
                 "carrots": deepcopy(self.carrots), "pairs": deepcopy(self.pairs)}
@@ -291,6 +395,8 @@ class Meadow:
         # restores that hierarchy before calling setstate(). No pickle is used.
         return deepcopy({"version": self.schema_version, "width": self.width, "height": self.height,
                          "maxRabbits": self.max_rabbits, "time": self.time, "bornCount": self.born_count,
+                         "raidedCount": self.raided_count, "encounter": self.encounter,
+                         "nextEncounterId": self._next_encounter_id, "nextEncounterIn": self._next_encounter_in,
                          "rabbits": self.rabbits, "basket": self.basket, "carrots": self.carrots,
                          "pairs": self.pairs, "receipts": self.receipts, "nextRabbitId": self._next_rabbit_id,
                          "nextCarrotId": self._next_carrot_id, "nextPairId": self._next_pair_id,
@@ -300,7 +406,8 @@ class Meadow:
     def from_state(cls, state):
         """Reject incomplete/corrupt state instead of silently deleting a shared world."""
         try:
-            if not isinstance(state, dict) or state["version"] != cls.schema_version:
+            if (not isinstance(state, dict) or type(state["version"]) is not int
+                    or state["version"] not in (1, cls.schema_version)):
                 raise ValueError("unsupported meadow state version")
             if state["width"] != cls.width or state["height"] != cls.height:
                 raise ValueError("unsupported meadow dimensions")
@@ -309,13 +416,27 @@ class Meadow:
             model._pair_check = state["pairCheck"]
             for name in ("rabbits", "basket", "carrots", "pairs", "receipts"):
                 setattr(model, name, deepcopy(state[name]))
+            # The old shared meadow only had white rabbits. Upgrading preserves
+            # every rabbit, action receipt and pairing instead of reseeding it.
+            if state["version"] == 1:
+                for rabbit in model.rabbits + model.basket:
+                    rabbit["coat"] = "white"
+                model.raided_count, model.encounter = 0, None
+                model._next_encounter_id = 1
+            else:
+                model.raided_count = state["raidedCount"]
+                model.encounter = deepcopy(state["encounter"])
+                model._next_encounter_id = state["nextEncounterId"]
+                model._next_encounter_in = state["nextEncounterIn"]
             model._next_rabbit_id = state["nextRabbitId"]
             model._next_carrot_id = state["nextCarrotId"]
             model._next_pair_id = state["nextPairId"]
-            model._validate_state()
             def tuples(value):
                 return tuple(tuples(item) for item in value) if isinstance(value, (list, tuple)) else value
             model._random.setstate(tuples(state["randomState"]))
+            if state["version"] == 1:
+                model._next_encounter_in = model._between(15, 30)
+            model._validate_state()
             return model
         except (KeyError, TypeError, IndexError, OverflowError, ValueError) as error:
             raise ValueError(f"Invalid persisted meadow state: {error}") from error
@@ -349,12 +470,17 @@ class Meadow:
             raise ValueError("duplicate action receipt")
         number(self.time)
         integer(self.born_count, 0)
+        integer(self.raided_count, 0)
+        integer(self._next_encounter_id)
+        number(self._next_encounter_in, 0, 70)
         number(self._pair_check, 0, .5)
         all_rabbits = self.rabbits + self.basket
         ids, carrot_ids, pair_ids = [], [], []
         for rabbit in all_rabbits:
             point(rabbit)
             integer(rabbit["id"])
+            if rabbit["coat"] not in self.coats:
+                raise ValueError("invalid rabbit coat")
             ids.append(rabbit["id"])
             for key in ("age", "cooldown", "_speed"):
                 number(rabbit[key])
@@ -417,6 +543,45 @@ class Meadow:
             integer(next_id)
             if len(set(identities)) != len(identities) or next_id <= max(identities, default=0):
                 raise ValueError("invalid next identifier")
+        if self.encounter is not None:
+            animal = self.encounter
+            if not isinstance(animal, dict):
+                raise ValueError("invalid wildlife encounter")
+            integer(animal["id"])
+            if animal["id"] >= self._next_encounter_id or animal["kind"] not in ("eagle", "wolf"):
+                raise ValueError("invalid wildlife identity")
+            if animal["phase"] not in ("warning", "chasing", "leaving"):
+                raise ValueError("invalid wildlife phase")
+            number(animal["remaining"], 0, 8 if animal["phase"] == "chasing" else 3)
+            number(animal["_routeIn"], -math.inf, .4)
+            number(animal["_leaveSpeed"])
+            integer(animal["targetId"])
+            if animal["targetId"] >= self._next_rabbit_id:
+                raise ValueError("invalid wildlife target")
+            if type(animal["direction"]) is not int or animal["direction"] not in (-1, 1):
+                raise ValueError("invalid wildlife direction")
+            def wildlife_point(item):
+                number(item["x"], self.margin, self.width - self.margin)
+                number(item["y"], self.margin, self.height - self.margin)
+                if animal["kind"] == "wolf":
+                    point(item)
+            wildlife_point(animal)
+            if not isinstance(animal["_path"], list) or len(animal["_path"]) > 18:
+                raise ValueError("invalid wildlife route")
+            previous = animal
+            for destination in animal["_path"]:
+                wildlife_point(destination)
+                if animal["kind"] == "wolf" and not self._segment_clear(previous, destination):
+                    raise ValueError("wolf route crosses water")
+                previous = destination
+            carried = animal["carrying"]
+            if carried is not None:
+                if (not isinstance(carried, dict) or set(carried) != {"id", "coat", "adult"}
+                        or animal["phase"] != "leaving" or self.raided_count < 1
+                        or carried["id"] != animal["targetId"] or carried["id"] in ids
+                        or carried["coat"] not in self.coats or type(carried["adult"]) is not bool):
+                    raise ValueError("invalid carried rabbit")
+                integer(carried["id"])
 
 
 def load_meadow(path):

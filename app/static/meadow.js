@@ -1,4 +1,5 @@
-import { createSeededRandom, createSnapshotBuffer, toWorldPoint } from './meadow-model.js?v=meadow3';
+import { drawRabbit } from './rabbit-art.js?v=meadow5';
+import { createSeededRandom, createSnapshotBuffer, toWorldPoint } from './meadow-model.js?v=meadow5';
 
 const byId = id => document.getElementById(id);
 
@@ -87,6 +88,17 @@ function startMeadow() {
       byId('basket-count').textContent = state.basket.length;
       previousNumbers = numbers;
     }
+    const encounter = state.encounter;
+    const indicator = byId('wildlife-status');
+    if (indicator) {
+      const animal = encounter?.kind === 'eagle' ? 'Eagle' : 'Wolf';
+      const label = encounter ? (encounter.phase === 'warning' ? `${animal} nearby · basket is safe`
+        : encounter.phase === 'chasing' ? `${animal} approaching · shelter a rabbit`
+        : encounter.carrying ? `${animal} carried one rabbit away` : `${animal} is leaving empty-handed`)
+        : state.raidedCount ? `${state.raidedCount} carried away · basket is safe` : 'A quiet moment in the meadow';
+      if (indicator.textContent !== label) indicator.textContent = label;
+      indicator.dataset.kind = encounter?.kind || 'calm';
+    }
   }
   function emit(item, kind = 'heart', count = 3) {
     const p = projected(item);
@@ -100,11 +112,19 @@ function startMeadow() {
       const oldIds = new Set([...old.rabbits, ...old.basket].map(rabbit => rabbit.id));
       const babies = state.rabbits.filter(rabbit => !oldIds.has(rabbit.id) && !rabbit.adult);
       for (const rabbit of babies) emit(rabbit, 'heart', 5);
-      if (babies.length) status('A new baby in our shared meadow. Everyone has a new neighbour!');
+      if (babies.length && !state.encounter) status('A new baby, a surprise coat. Meet the meadow’s newest neighbour!');
+    }
+    if (changed && state.encounter && !paused && !aboutDialog?.open && !helpDialog?.open
+      && (old?.encounter?.id !== state.encounter.id || old?.encounter?.phase !== state.encounter.phase)) {
+      const event = state.encounter, animal = event.kind === 'eagle' ? 'An eagle' : 'A grey wolf';
+      status(event.phase === 'warning' ? `${animal} is nearby. Use Catch to shelter rabbits in the shared basket.`
+        : event.phase === 'chasing' ? `${animal} is approaching! Rabbits in the basket are safe.`
+        : event.carrying ? `${animal} carried a rabbit away. The rest of the meadow keeps growing.`
+        : `${animal} is leaving empty-handed. A lucky moment for the meadow.`);
     }
     if (!old) {
       byId('meadow-loading').hidden = true;
-      status(paused ? 'Your view is paused for reduced motion. Play joins the live meadow.'
+      if (paused || !state.encounter) status(paused ? 'Your view is paused for reduced motion. Play joins the live meadow.'
         : 'One meadow for everyone. Leave a carrot, meet the rabbits, and make yourself at home.');
     }
     if (paused && !frozen) frozen = buffer.sample(performance.now());
@@ -165,7 +185,7 @@ function startMeadow() {
         caught:'A rabbit is in the shared basket. Everyone can see it there.',
         released:'Back on the grass, for everyone to enjoy.',
         carrot_added:'A carrot for our shared meadow. Watch who comes over.',
-        rabbit_gone:'Someone got there first. That rabbit is already in the shared basket.',
+        rabbit_gone:'That rabbit has already left this spot. Check the meadow and shared basket.',
         basket_empty:'The shared basket is empty. Everyone is out on the grass.',
         carrot_limit:'There are already six carrots in the meadow. Let the rabbits finish a few.',
         invalid_position:'Choose a patch of grass away from the pond and the edge of the meadow.',
@@ -197,9 +217,12 @@ function startMeadow() {
   function useTool(position) {
     if (!connected || paused || pending || !rendered) return;
     if (tool === 'carrot') { action({action:'carrot', ...toWorldPoint(position.x,position.y,W,H)}); return; }
-    const radius = Math.max(36,26*W/canvas.getBoundingClientRect().width);
-    const nearest = rendered.rabbits.map(projected).sort((a,z) => Math.hypot(a.x-position.x,a.y-position.y)-Math.hypot(z.x-position.x,z.y-position.y))[0];
-    if (!nearest || Math.hypot(nearest.x-position.x,nearest.y-position.y)>radius) {
+    const radius = Math.max(40,28*W/canvas.getBoundingClientRect().width);
+    // Hit the visible torso, rather than the ground point below the new sprite.
+    const hitDistance = rabbit => Math.hypot(rabbit.x-position.x,
+      rabbit.y-(rabbit.adult?24:16)-position.y);
+    const nearest = rendered.rabbits.map(projected).sort((a,z) => hitDistance(a)-hitDistance(z))[0];
+    if (!nearest || hitDistance(nearest)>radius) {
       status(tool==='net'?'A little closer to a rabbit. Carrots can bring them over.':'A peaceful little world. Choose Carrot or Catch, or simply watch.');
       return;
     }
@@ -247,6 +270,7 @@ function startMeadow() {
     counters(state);
     for(const carrot of state.carrots){const p=projected(carrot);drawCarrot(ctx,p.x,p.y,1);}
     for(const rabbit of [...state.rabbits].sort((a,z)=>a.y-z.y))drawRabbit(ctx,projected(rabbit),state.time);
+    if(state.encounter)drawWildlife(ctx,projected(state.encounter),state.time);
     for(const pair of state.pairs){if(pair.phase!=='nesting')continue;const p=projected(pair),y=p.y-43+Math.sin(state.time*3)*3;ellipse(ctx,p.x,y,15,14,'#fff8ee');heart(ctx,p.x,y,8,'#db8291');}
     for(const p of particles){if(p.age<0)continue;ctx.globalAlpha=Math.max(0,1-p.age/1.6);if(p.kind==='heart')heart(ctx,p.x,p.y-p.age*26,7,'#df879a');else flower(ctx,p.x,p.y-p.age*26,5,'#fff9da','#d7ad60');}
     ctx.globalAlpha=1;
@@ -299,32 +323,63 @@ function flower(c, x, y, size, petal, center) {
   for (let i = 0; i < 5; i++) ellipse(c, x + Math.cos(i * 1.256) * size * 0.6, y + Math.sin(i * 1.256) * size * 0.6, size * 0.5, size * 0.5, petal);
   ellipse(c, x, y, size * 0.3, size * 0.3, center);
 }
-function drawRabbit(c, rabbit, time) {
-  const size = rabbit.adult ? 1 : 0.58 + Math.min(rabbit.age / 30, 1) * 0.2;
-  const hop = rabbit.moving ? Math.sin(rabbit.hopProgress * Math.PI) * 9 : 0;
-  const d = rabbit.direction || 1;
-  const breathe = 1 + Math.sin(time * 2 + rabbit.id) * 0.018;
-  ellipse(c, rabbit.x, rabbit.y + 3, 22 * size, 7 * size, '#9eb77555');
-  c.save(); c.translate(rabbit.x, rabbit.y - hop); c.scale(d * size, size);
-  // Back ear, cloud-like body, and a small cotton tail.
-  ellipse(c, 8, -31, 5, 14, '#e8ebdc', 0.17);
-  ellipse(c, 8, -32, 2.4, 9, '#edbcc0', 0.17);
-  ellipse(c, -4, -10, 21, 15 * breathe, '#b9c5a1');
-  ellipse(c, -4, -12, 21, 15 * breathe, '#fffef4');
-  ellipse(c, -23, -11, 7, 7, '#ffffff');
-  ellipse(c, -11, -1, 10, 4, '#f3f4e7');
-  ellipse(c, 11, 0, 7, 3.5, '#e7ecd8');
-  ellipse(c, 12, -17, 12, 11, '#fffef4');
-  ellipse(c, 16, -34, 4.8, 13, '#fffef4', 0.25);
-  ellipse(c, 16, -35, 2.1, 8.2, '#efbec0', 0.25);
-  if (!rabbit.moving && Math.sin(time * 0.6 + rabbit.id * 2) > 0.994) {
-    line(c, [[16, -20], [19, -20]], '#465a47', 1.4);
-  } else ellipse(c, 18, -20, 1.8, 2.1, '#435444');
-  ellipse(c, 21.5, -13, 3, 1.8, '#f0c5bc');
-  ellipse(c, 24.5, -16, 1.6, 1.4, '#c48e83');
-  line(c, [[22, -12], [25, -11.5]], '#c4c9b5', 0.8);
-  if (!rabbit.adult) flower(c, -10, -26, 3.7, '#fcf0c6', '#dca964');
-  c.restore();
+function polygon(c, points, color) {
+  c.beginPath(); c.moveTo(...points[0]);
+  for (const point of points.slice(1)) c.lineTo(...point);
+  c.closePath(); c.fillStyle=color; c.fill();
+}
+function drawWildlife(c, event, time) {
+  const warning = event.phase === 'warning';
+  const d = event.direction;
+  // All travel comes from server snapshots; wingbeats and footfalls are cosmetic.
+  ellipse(c,event.x,event.y+5,event.kind==='eagle'?37:42,9,'#54644f30');
+  if(warning){
+    c.save(); c.setLineDash([5,5]); c.strokeStyle='#aa8152'; c.lineWidth=1.5;
+    c.beginPath(); c.ellipse(event.x,event.y,48,20,0,0,Math.PI*2); c.stroke(); c.restore();
+  }
+  if(event.kind==='eagle'){
+    const lift = warning ? 52 : event.phase==='leaving' ? 44 : 29;
+    if(event.carrying) drawRabbit(c,{...event.carrying,x:event.x,y:event.y-lift+39,direction:d,moving:false},time,{scale:.65,shadow:false});
+    c.save(); c.translate(event.x,event.y-lift); c.scale(d,1);
+    const flap = Math.sin(time*8)*16;
+    polygon(c,[[-10,-4],[-34,-29-flap],[-52,-40-flap],[-46,-15],[-53,-13],[-42,-6],[-47,-3],[-29,5],[-7,9]],'#6c5540');
+    polygon(c,[[0,-5],[19,-34+flap],[33,-49+flap],[36,-27],[44,-24],[35,-12],[41,-10],[24,3],[5,11]],'#8e7050');
+    line(c,[[-35,-22-flap],[-23,-4],[-8,4]],'#a38a63',2);
+    line(c,[[29,-30+flap],[21,-11],[5,4]],'#b29a72',2);
+    polygon(c,[[-8,5],[-22,25],[-13,25],[-8,30],[2,19],[7,7]],'#624c38');
+    ellipse(c,0,4,12,18,'#8a6a46',-.3);
+    ellipse(c,9,-6,11,10,'#f5ecd7');
+    polygon(c,[[16,-7],[27,-2],[19,2],[17,6],[14,0]],'#d6a34f');
+    ellipse(c,12,-8,1.9,2,'#3f4940');
+    line(c,[[1,18],[0,27],[-4,29]],'#c29a4f',2);
+    line(c,[[8,17],[9,26],[13,29]],'#c29a4f',2);
+    c.restore();
+  } else {
+    const stride = warning ? 0 : Math.sin(time*12)*10;
+    c.save(); c.translate(event.x,event.y); c.scale(d,1);
+    polygon(c,[[-25,-24],[-49,-39],[-61,-37],[-48,-29],[-56,-25],[-34,-11],[-20,-10]],'#68777a');
+    line(c,[[-20,-16],[-24+stride,0],[-15+stride,1]],'#607074',7);
+    line(c,[[19,-18],[23-stride,0],[31-stride,1]],'#607074',7);
+    ellipse(c,-2,-21,32,16,'#829193');
+    polygon(c,[[6,-33],[20,-44],[28,-41],[37,-30],[48,-25],[43,-17],[29,-14],[20,-7],[12,-16]],'#8f9b9c');
+    polygon(c,[[18,-37],[17,-60],[30,-43]],'#68787c');
+    polygon(c,[[29,-36],[35,-57],[39,-35]],'#738387');
+    polygon(c,[[20,-42],[20,-52],[26,-43]],'#c2a59c');
+    polygon(c,[[33,-40],[35,-49],[37,-38]],'#c2a59c');
+    polygon(c,[[13,-26],[27,-20],[43,-23],[41,-16],[26,-12],[18,-6]],'#cdd1c5');
+    ellipse(c,44,-25,5,3.2,'#3d5053');
+    ellipse(c,31,-33,2.1,2.1,'#293e42');
+    line(c,[[29,-38],[34,-36]],'#5b7074',1.7);
+    line(c,[[-13,-14],[-12-stride,1],[-3-stride,2]],'#94a09c',7);
+    line(c,[[13,-13],[13+stride,1],[22+stride,2]],'#a4afa7',7);
+    c.restore();
+    if(event.carrying) drawRabbit(c,{...event.carrying,x:event.x+43*d,y:event.y+9,direction:-d,moving:false},time,{scale:.53,shadow:false});
+  }
+  if(warning){
+    rounded(c,event.x-12,event.y-(event.kind==='eagle'?92:84),24,24,12,'#fff3d7');
+    c.font='bold 16px Georgia, serif';c.textAlign='center';c.fillStyle='#9b774b';
+    c.fillText('!',event.x,event.y-(event.kind==='eagle'?75:67));
+  }
 }
 function drawCarrot(c, x, y, size) {
   c.save(); c.translate(x, y); c.rotate(-0.4); c.scale(size, size);
