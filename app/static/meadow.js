@@ -1,4 +1,4 @@
-import { createMeadow, createSeededRandom } from './meadow-model.js?v=meadow2';
+import { createSeededRandom, createSnapshotBuffer, toWorldPoint } from './meadow-model.js?v=meadow3';
 
 const byId = id => document.getElementById(id);
 
@@ -48,282 +48,234 @@ else if (byId('meadow-loading')) {
 }
 
 function startMeadow() {
-  let W = 1000, H = 600;
-  let model = createMeadow({ seed: Date.now() });
-  let tool = 'watch';
-  let frame = 0, lastTime = 0, sceneVisible = true;
-  let particles = [];
-  let keyboardRing = false;
-  let cursor = { x: W / 2, y: H / 2, visible: false };
-  let viewWidth = 1000;
-  let previousNumbers = '';
+  let W = 1000, H = 600, tool = 'watch';
+  const buffer = createSnapshotBuffer();
+  let frame = 0, lastTime = 0, particles = [], frozen = null;
+  let cursor = {x:500, y:300, visible:false}, keyboardRing = false;
+  let connected = false, pending = false, polling = false, pollTimer = 0, failures = 0;
+  let previousNumbers = '', rendered = null;
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   let paused = reducedMotion.matches;
   const background = document.createElement('canvas');
-  background.width = W;
-  background.height = H;
   const b = background.getContext('2d');
-  paintLandscape(b, W, H);
+  const status = message => { byId('meadow-status').textContent = message; };
+  const projected = item => ({...item, x:item.x / 1000 * W, y:item.y / 600 * H});
 
-  function status(message) {
-    byId('meadow-status').textContent = message;
+  function controls() {
+    const blocked = !connected || paused || pending;
+    byId('tool-carrot').disabled = blocked;
+    byId('tool-net').disabled = blocked;
+    byId('release-rabbit').disabled = blocked || !buffer.latest?.basket.length;
+    byId('reset-meadow').disabled = polling || pending;
+    byId('pause-meadow').disabled = !buffer.latest;
   }
-
-  function counters() {
-    const numbers = `${model.rabbits.length}/${model.bornCount}/${model.basket.length}`;
+  function connection(ok) {
+    connected = ok;
+    const indicator = byId('connection-status');
+    const label = ok ? 'Shared meadow · connected' : 'Reconnecting…';
+    if (indicator.textContent !== label) indicator.textContent = label;
+    indicator.dataset.state = ok ? 'connected' : 'offline';
+    controls();
+    schedule();
+  }
+  function counters(state) {
+    if (!state) return;
+    const numbers = `${state.rabbits.length}/${state.bornCount}/${state.basket.length}`;
     if (numbers !== previousNumbers) {
-      byId('rabbit-count').textContent = model.rabbits.length;
-      byId('born-count').textContent = model.bornCount;
-      byId('basket-count').textContent = model.basket.length;
-      byId('release-rabbit').disabled = model.basket.length === 0;
+      byId('rabbit-count').textContent = state.rabbits.length;
+      byId('born-count').textContent = state.bornCount;
+      byId('basket-count').textContent = state.basket.length;
       previousNumbers = numbers;
     }
   }
-
-  function emit(x, y, kind = 'heart', count = 3) {
-    for (let i = 0; i < count; i++) {
-      particles.push({ x: x + (i - (count - 1) / 2) * 14, y: y - 25, age: -i * 0.1, kind });
-    }
+  function emit(item, kind = 'heart', count = 3) {
+    const p = projected(item);
+    for (let i = 0; i < count; i++) particles.push({x:p.x + (i-(count-1)/2)*14, y:p.y-25, age:-i*0.1, kind});
     particles = particles.slice(-60);
   }
-
-  function consumeEvents() {
-    const events = model.consumeEvents();
-    const births = events.filter(event => event.type === 'birth');
-    for (const birth of births) emit(birth.x, birth.y, 'heart', 5);
-    if (births.length) status(births.length === 1
-      ? 'A baby bunny! Give it a little time to grow. The meadow has a new neighbour.'
-      : `${births.length} baby bunnies just arrived. A little more life in the meadow.`);
-    if (births.length && model.totalCount === model.maxRabbits) {
-      status('A full little family: 60 rabbits, including your basket. Enjoy the meadow or start a new one.');
+  function accept(state) {
+    const old = buffer.latest;
+    const changed = buffer.accept(state, performance.now());
+    if (changed && old?.epoch === state.epoch && !paused && !aboutDialog?.open && !helpDialog?.open) {
+      const oldIds = new Set([...old.rabbits, ...old.basket].map(rabbit => rabbit.id));
+      const babies = state.rabbits.filter(rabbit => !oldIds.has(rabbit.id) && !rabbit.adult);
+      for (const rabbit of babies) emit(rabbit, 'heart', 5);
+      if (babies.length) status('A new baby in our shared meadow. Everyone has a new neighbour!');
     }
-    counters();
-  }
-
-  function chooseTool(next) {
-    tool = next;
-    for (const name of ['watch', 'carrot', 'net']) {
-      byId(`tool-${name}`).setAttribute('aria-pressed', String(name === tool));
+    if (!old) {
+      byId('meadow-loading').hidden = true;
+      status(paused ? 'Your view is paused for reduced motion. Play joins the live meadow.'
+        : 'One meadow for everyone. Leave a carrot, meet the rabbits, and make yourself at home.');
     }
-    canvas.setAttribute('aria-label', `Rabbit meadow. ${tool === 'net' ? 'Catch tool' : tool === 'carrot' ? 'Carrot tool' : 'Watch tool'} selected. Arrow keys move the ring; Enter uses the tool.`);
-    status({ watch: 'Stay a while. Grown-up rabbits find a partner, share a heart, and welcome a baby.',
-      carrot: 'Tap a patch of grass to leave a carrot. Curious rabbits will hop over.',
-      net: 'Tap a rabbit to gently catch it. Your basket keeps it safe until you release it.' }[tool]);
+    if (paused && !frozen) frozen = buffer.sample(performance.now());
+    connection(true);
     draw();
   }
-
+  async function request(url, options = {}) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch(url, {...options, cache:'no-store', signal:controller.signal});
+      const data = await response.json();
+      if (!response.ok) {
+        const error = new Error(data.code || 'request_failed');
+        error.status = response.status;
+        throw error;
+      }
+      return data;
+    } finally { clearTimeout(timeout); }
+  }
+  function queuePoll(delay) {
+    clearTimeout(pollTimer);
+    if (!document.hidden) pollTimer = setTimeout(poll, delay);
+  }
+  async function poll() {
+    if (polling || document.hidden) return;
+    polling = true;
+    controls();
+    try {
+      accept(await request('/api/meadow'));
+      failures = 0;
+    } catch {
+      failures++;
+      connection(false);
+      status('The connection is resting. Reconnecting to the shared meadow; tools will return when it does.');
+      if (!buffer.latest) byId('meadow-loading').textContent = 'Connecting to the shared meadow…';
+    } finally {
+      polling = false;
+      controls();
+      queuePoll(failures ? Math.min(15000, 1000 * 2 ** Math.min(failures,4)) : paused || aboutDialog?.open || helpDialog?.open ? 3000 : 1000);
+    }
+  }
+  function requestId() {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128;
+    const hex = [...bytes].map(value => value.toString(16).padStart(2,'0')).join('');
+    return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+  }
+  async function action(details) {
+    if (!connected || paused || pending) return;
+    pending = true;
+    controls();
+    const body = JSON.stringify({...details, requestId:requestId()});
+    try {
+      const result = await request('/api/meadow/actions', {method:'POST', headers:{'Content-Type':'application/json','X-Meadow-Client':'1'}, body});
+      accept(result.state);
+      const messages = {
+        caught:'A rabbit is in the shared basket. Everyone can see it there.',
+        released:'Back on the grass, for everyone to enjoy.',
+        carrot_added:'A carrot for our shared meadow. Watch who comes over.',
+        rabbit_gone:'Someone got there first. That rabbit is already in the shared basket.',
+        basket_empty:'The shared basket is empty. Everyone is out on the grass.',
+        carrot_limit:'There are already six carrots in the meadow. Let the rabbits finish a few.',
+        invalid_position:'Choose a patch of grass away from the pond and the edge of the meadow.',
+      };
+      status(messages[result.code] || 'The shared meadow is up to date.');
+    } catch(error) {
+      if (error.status === 429) status('A little slower, please. Give the meadow a moment before trying again.');
+      else {
+        connection(false);
+        status('That action could not be confirmed. Reconnecting to check the shared meadow before trying again.');
+        queuePoll(1000);
+      }
+    } finally { pending = false; controls(); }
+  }
+  function chooseTool(next) {
+    if (next !== 'watch' && (!connected || paused || pending)) return;
+    tool = next;
+    for (const name of ['watch','carrot','net']) byId(`tool-${name}`).setAttribute('aria-pressed', String(name === tool));
+    canvas.setAttribute('aria-label', `Shared rabbit meadow. ${tool === 'net' ? 'Catch' : tool === 'carrot' ? 'Carrot' : 'Watch'} selected. Arrow keys move the ring; Enter uses the tool.`);
+    status({watch:'One meadow, shared by everyone. Take a little time to watch it grow.',
+      carrot:'Tap the grass to leave a carrot. Other visitors will see it too.',
+      net:'Tap a rabbit to move it into the shared basket. Anyone can release it.'}[tool]);
+    draw();
+  }
   function point(event) {
     const rect = canvas.getBoundingClientRect();
-    return { x: Math.max(24, Math.min(W - 24, (event.clientX - rect.left) / rect.width * W)),
-      y: Math.max(35, Math.min(H - 24, (event.clientY - rect.top) / rect.height * H)) };
+    return {x:Math.max(0,Math.min(W,(event.clientX-rect.left)/rect.width*W)), y:Math.max(0,Math.min(H,(event.clientY-rect.top)/rect.height*H))};
   }
-
   function useTool(position) {
-    const radius = Math.max(36, 26 * W / viewWidth);
-    if (tool === 'net') {
-      const rabbit = model.catchAt(position.x, position.y, radius);
-      if (rabbit) {
-        emit(rabbit.x, rabbit.y, 'spark', 4);
-        status(model.rabbits.length
-          ? 'One fluffy passenger in your basket. Use Release to send a rabbit back.'
-          : 'Everyone is in your basket! Release a pair to bring the meadow back to life.');
-      } else status('Almost! Tap a little closer to a rabbit, or leave a carrot to bring one over.');
-    } else if (tool === 'carrot') {
-      const carrot = model.addCarrot(position.x, position.y);
-      status(carrot ? 'A carrot, just for them. Watch who comes over for a nibble.'
-        : 'Try a free patch of grass. The meadow can hold six carrots at a time.');
-      if (carrot) emit(carrot.x, carrot.y, 'spark', 2);
-    } else {
-      const rabbit = [...model.rabbits].sort((a, z) => Math.hypot(a.x - position.x, a.y - position.y) - Math.hypot(z.x - position.x, z.y - position.y))[0];
-      if (rabbit && Math.hypot(rabbit.x - position.x, rabbit.y - position.y) <= radius) {
-        emit(rabbit.x, rabbit.y, 'heart', 3);
-        status(rabbit.adult ? 'Hello, little friend. A small hello goes a long way.' : 'The smallest new neighbour. Baby rabbits grow up as you watch.');
-      } else status('There’s no hurry here. Try Carrot or Catch, or just watch the little lives unfold.');
+    if (!connected || paused || pending || !rendered) return;
+    if (tool === 'carrot') { action({action:'carrot', ...toWorldPoint(position.x,position.y,W,H)}); return; }
+    const radius = Math.max(36,26*W/canvas.getBoundingClientRect().width);
+    const nearest = rendered.rabbits.map(projected).sort((a,z) => Math.hypot(a.x-position.x,a.y-position.y)-Math.hypot(z.x-position.x,z.y-position.y))[0];
+    if (!nearest || Math.hypot(nearest.x-position.x,nearest.y-position.y)>radius) {
+      status(tool==='net'?'A little closer to a rabbit. Carrots can bring them over.':'A peaceful little world. Choose Carrot or Catch, or simply watch.');
+      return;
     }
-    consumeEvents();
-    draw();
-  }
-
-  for (const name of ['watch', 'carrot', 'net']) byId(`tool-${name}`).addEventListener('click', () => chooseTool(name));
-  canvas.addEventListener('pointermove', event => {
-    cursor = { ...point(event), visible: event.pointerType !== 'touch' };
-    keyboardRing = false;
-    if (paused) draw();
-  });
-  canvas.addEventListener('pointerleave', () => {
-    cursor.visible = false;
-    if (paused) draw();
-  });
-  // A click, rather than pointerdown, lets visitors scroll past the meadow on a phone.
-  canvas.addEventListener('click', event => {
-    cursor = { ...point(event), visible: false };
-    keyboardRing = false;
-    useTool(cursor);
-  });
-  canvas.addEventListener('focus', () => { keyboardRing = true; draw(); });
-  canvas.addEventListener('blur', () => { keyboardRing = false; draw(); });
-  canvas.addEventListener('keydown', event => {
-    const moves = { ArrowLeft: [-35, 0], ArrowRight: [35, 0], ArrowUp: [0, -35], ArrowDown: [0, 35] };
-    if (moves[event.key]) {
-      event.preventDefault();
-      cursor.x = Math.max(24, Math.min(W - 24, cursor.x + moves[event.key][0]));
-      cursor.y = Math.max(35, Math.min(H - 24, cursor.y + moves[event.key][1]));
-      keyboardRing = true;
+    if (tool === 'net') action({action:'catch',rabbitId:nearest.id});
+    else {
+      emit(rendered.rabbits.find(rabbit => rabbit.id===nearest.id));
+      status('Hello, little friend. A small hello goes a long way.');
       draw();
-    } else if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      useTool(cursor);
-    } else if (['w', 'c', 'n'].includes(event.key.toLowerCase())) {
-      chooseTool({ w: 'watch', c: 'carrot', n: 'net' }[event.key.toLowerCase()]);
     }
+  }
+  for (const name of ['watch','carrot','net']) byId(`tool-${name}`).addEventListener('click',()=>chooseTool(name));
+  canvas.addEventListener('pointermove',event=>{cursor={...point(event),visible:event.pointerType!=='touch'};keyboardRing=false;if(!canRun())draw();});
+  canvas.addEventListener('pointerleave',()=>{cursor.visible=false;if(!canRun())draw();});
+  canvas.addEventListener('click',event=>{cursor={...point(event),visible:false};keyboardRing=false;useTool(cursor);});
+  canvas.addEventListener('focus',()=>{keyboardRing=true;draw();});
+  canvas.addEventListener('blur',()=>{keyboardRing=false;draw();});
+  canvas.addEventListener('keydown',event=>{
+    const moves={ArrowLeft:[-35,0],ArrowRight:[35,0],ArrowUp:[0,-35],ArrowDown:[0,35]};
+    if(moves[event.key]){event.preventDefault();cursor.x=Math.max(0,Math.min(W,cursor.x+moves[event.key][0]));cursor.y=Math.max(0,Math.min(H,cursor.y+moves[event.key][1]));keyboardRing=true;draw();}
+    else if(event.key==='Enter'||event.key===' '){event.preventDefault();useTool(cursor);}
+    else if(['w','c','n'].includes(event.key.toLowerCase()))chooseTool({w:'watch',c:'carrot',n:'net'}[event.key.toLowerCase()]);
   });
-
   function pauseLabel() {
-    byId('pause-meadow').textContent = paused ? '▶ Play' : 'Ⅱ Pause';
-    byId('pause-meadow').setAttribute('aria-pressed', String(paused));
-    byId('meadow-stage').classList.toggle('is-paused', paused);
+    byId('pause-meadow').textContent=paused?'▶ Live view':'Ⅱ Pause view';
+    byId('pause-meadow').setAttribute('aria-pressed',String(paused));
   }
-  byId('pause-meadow').addEventListener('click', () => {
-    paused = !paused;
-    pauseLabel();
-    status(paused ? 'A quiet moment. The meadow is paused; your tools still work.' : 'Life goes on. The rabbits are hopping again.');
-    schedule();
-    draw();
-  });
-  byId('release-rabbit').addEventListener('click', () => {
-    const rabbit = model.releaseOne();
-    if (rabbit) {
-      emit(rabbit.x, rabbit.y, 'spark', 5);
-      consumeEvents();
-      status('Back on the grass. Welcome home, little rabbit.');
-      draw();
-    }
-  });
-  byId('reset-meadow').addEventListener('click', () => {
-    model = createMeadow({ width: W, height: H, seed: Date.now() });
-    particles = [];
-    previousNumbers = '';
-    chooseTool('watch');
-    status('A fresh little meadow, with 12 rabbits to meet.');
-    counters();
-    draw();
-  });
-  reducedMotion.addEventListener('change', event => {
-    if (event.matches) {
-      paused = true;
-      pauseLabel();
-      schedule();
-      draw();
-      status('The meadow is paused for reduced motion. Press Play whenever you want.');
-    }
-  });
+  function pauseView(next) {
+    if (next && !paused) frozen=buffer.sample(performance.now());
+    paused=next;
+    if (!paused) {frozen=null;poll();}
+    pauseLabel(); controls(); schedule(); draw();
+    status(paused?'Only your view is paused. The shared meadow continues for everyone else.':'Back to the live shared meadow.');
+  }
+  byId('pause-meadow').addEventListener('click',()=>pauseView(!paused));
+  byId('release-rabbit').addEventListener('click',()=>action({action:'release'}));
+  byId('reset-meadow').addEventListener('click',()=>{if(paused)pauseView(false);else poll();status('Syncing with the shared meadow. The rabbits stay right where they belong.');});
+  reducedMotion.addEventListener('change',event=>{if(event.matches)pauseView(true);});
 
   function draw() {
-    const sx = canvas.width / W, sy = canvas.height / H;
-    ctx.setTransform(sx, 0, 0, sy, 0, 0);
-    ctx.drawImage(background, 0, 0);
-    for (const carrot of model.carrots) drawCarrot(ctx, carrot.x, carrot.y, 1);
-    for (const rabbit of [...model.rabbits].sort((a, z) => a.y - z.y)) {
-      drawRabbit(ctx, rabbit, model.time);
-    }
-    for (const pair of model.pairs) {
-      if (pair.phase !== 'nesting') continue;
-      const x = pair.x, y = pair.y - 43;
-      const bob = Math.sin(model.time * 3) * 3;
-      ellipse(ctx, x, y + bob, 15, 14, '#fff8ee');
-      heart(ctx, x, y + bob, 8, '#db8291');
-    }
-    for (const p of particles) {
-      if (p.age < 0) continue;
-      ctx.globalAlpha = Math.max(0, 1 - p.age / 1.6);
-      const y = p.y - p.age * 26;
-      if (p.kind === 'heart') heart(ctx, p.x, y, 7, '#df879a');
-      else flower(ctx, p.x, y, 5, '#fff9da', '#d7ad60');
-    }
-    ctx.globalAlpha = 1;
-    drawButterfly(ctx, W * (0.32 + Math.sin(model.time * 0.22) * 0.105), H * (0.157 + Math.sin(model.time * 0.39) * 0.037), model.time, '#e9b891');
-    drawButterfly(ctx, W * (0.88 + Math.sin(model.time * 0.27 + 3) * 0.038), H * (0.688 + Math.sin(model.time * 0.48) * 0.05), model.time + 2, '#fbf4c8');
-    if (cursor.visible || keyboardRing) {
-      ctx.strokeStyle = '#426947';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([5, 5]);
-      ctx.beginPath();
-      ctx.ellipse(cursor.x, cursor.y, tool === 'net' ? 31 : 24, tool === 'net' ? 22 : 16, 0, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      if (tool === 'carrot') drawCarrot(ctx, cursor.x + 20, cursor.y - 22, 0.8);
-      if (tool === 'net') drawNet(ctx, cursor.x + 15, cursor.y - 24);
-      if (tool === 'watch') heart(ctx, cursor.x + 16, cursor.y - 25, 6, '#d4828f');
-    }
-    if (paused) {
-      rounded(ctx, W / 2 - 114, H / 2 - 17, 228, 34, 17, '#f7f6e9');
-      ctx.font = '12px Arial, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillStyle = '#496246';
-      ctx.fillText('A QUIET MOMENT · PAUSED', W / 2, H / 2 + 5);
-    }
+    ctx.setTransform(canvas.width/W,0,0,canvas.height/H,0,0);
+    ctx.drawImage(background,0,0);
+    const state=paused?frozen:buffer.sample(performance.now());
+    if (!state) return;
+    rendered=state;
+    counters(state);
+    for(const carrot of state.carrots){const p=projected(carrot);drawCarrot(ctx,p.x,p.y,1);}
+    for(const rabbit of [...state.rabbits].sort((a,z)=>a.y-z.y))drawRabbit(ctx,projected(rabbit),state.time);
+    for(const pair of state.pairs){if(pair.phase!=='nesting')continue;const p=projected(pair),y=p.y-43+Math.sin(state.time*3)*3;ellipse(ctx,p.x,y,15,14,'#fff8ee');heart(ctx,p.x,y,8,'#db8291');}
+    for(const p of particles){if(p.age<0)continue;ctx.globalAlpha=Math.max(0,1-p.age/1.6);if(p.kind==='heart')heart(ctx,p.x,p.y-p.age*26,7,'#df879a');else flower(ctx,p.x,p.y-p.age*26,5,'#fff9da','#d7ad60');}
+    ctx.globalAlpha=1;
+    drawButterfly(ctx,W*(.32+Math.sin(state.time*.22)*.105),H*(.157+Math.sin(state.time*.39)*.037),state.time,'#e9b891');
+    drawButterfly(ctx,W*(.88+Math.sin(state.time*.27+3)*.038),H*(.688+Math.sin(state.time*.48)*.05),state.time+2,'#fbf4c8');
+    if((cursor.visible||keyboardRing)&&connected&&!paused){ctx.strokeStyle='#426947';ctx.lineWidth=2;ctx.setLineDash([5,5]);ctx.beginPath();ctx.ellipse(cursor.x,cursor.y,tool==='net'?31:24,tool==='net'?22:16,0,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);if(tool==='carrot')drawCarrot(ctx,cursor.x+20,cursor.y-22,.8);if(tool==='net')drawNet(ctx,cursor.x+15,cursor.y-24);if(tool==='watch')heart(ctx,cursor.x+16,cursor.y-25,6,'#d4828f');}
+    if(paused){rounded(ctx,W/2-124,H/2-17,248,34,17,'#f7f6e9');ctx.font='12px Arial, sans-serif';ctx.textAlign='center';ctx.fillStyle='#496246';ctx.fillText('YOUR VIEW IS PAUSED',W/2,H/2+5);}
   }
-
   function resize() {
-    const rect = canvas.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
-    // Match the map to the viewport, without stretching rabbits or clipping play space.
-    const unitsPerPixel = rect.width < 600 ? 1.25 : 0.95;
-    const nextW = Math.max(240, Math.round(rect.width * unitsPerPixel));
-    const nextH = Math.max(160, Math.round(rect.height * unitsPerPixel));
-    if (nextW !== W || nextH !== H) {
-      cursor.x = cursor.x / W * nextW;
-      cursor.y = cursor.y / H * nextH;
-      W = nextW; H = nextH;
-      model.resize(W, H);
-      particles = [];
-      background.width = W;
-      background.height = H;
-      paintLandscape(b, W, H);
-    }
-    viewWidth = rect.width;
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-    canvas.width = Math.round(rect.width * dpr);
-    canvas.height = Math.round(rect.height * dpr);
+    const rect=canvas.getBoundingClientRect();
+    if(!rect.width||!rect.height)return;
+    const unit=rect.width<600?1.25:.95;
+    const nextW=Math.max(240,Math.round(rect.width*unit)),nextH=Math.max(160,Math.round(rect.height*unit));
+    cursor.x=cursor.x/W*nextW;cursor.y=cursor.y/H*nextH;
+    W=nextW;H=nextH;
+    background.width=W;background.height=H;paintLandscape(b,W,H);particles=[];
+    const dpr=Math.min(window.devicePixelRatio||1,1.5);
+    canvas.width=Math.round(rect.width*dpr);canvas.height=Math.round(rect.height*dpr);
     draw();
   }
-  function canRun() { return !paused && !document.hidden && sceneVisible && !aboutDialog?.open && !helpDialog?.open; }
-  function tick(now) {
-    frame = 0;
-    if (!canRun()) { lastTime = 0; return; }
-    if (!lastTime) lastTime = now;
-    const elapsed = now - lastTime;
-    if (elapsed >= 1000 / 30) {
-      const dt = Math.min(elapsed / 1000, 0.1);
-      lastTime = now;
-      model.update(dt);
-      for (const p of particles) p.age += dt;
-      particles = particles.filter(p => p.age < 1.6);
-      consumeEvents();
-      draw();
-    }
-    frame = requestAnimationFrame(tick);
-  }
-  function schedule() {
-    if (frame) cancelAnimationFrame(frame);
-    frame = 0;
-    lastTime = 0;
-    if (canRun()) frame = requestAnimationFrame(tick);
-  }
-  document.addEventListener('visibilitychange', schedule);
-  window.addEventListener('meadow-overlay-change', schedule);
-  new IntersectionObserver(entries => {
-    sceneVisible = entries[0].isIntersecting && entries[0].intersectionRatio >= 0.05;
-    schedule();
-  }, { threshold: 0.05 }).observe(canvas);
+  function canRun(){return connected&&!paused&&!document.hidden&&!aboutDialog?.open&&!helpDialog?.open;}
+  function tick(now){frame=0;if(!canRun()){lastTime=0;return;}if(!lastTime)lastTime=now;const elapsed=now-lastTime;if(elapsed>=1000/30){lastTime=now;for(const p of particles)p.age+=Math.min(elapsed/1000,.1);particles=particles.filter(p=>p.age<1.6);draw();}frame=requestAnimationFrame(tick);}
+  function schedule(){if(frame)cancelAnimationFrame(frame);frame=0;lastTime=0;if(canRun())frame=requestAnimationFrame(tick);}
+  document.addEventListener('visibilitychange',()=>{clearTimeout(pollTimer);schedule();if(!document.hidden)poll();});
+  window.addEventListener('meadow-overlay-change',()=>{schedule();if(!aboutDialog?.open&&!helpDialog?.open)poll();});
+  window.addEventListener('online',()=>poll());
+  window.addEventListener('offline',()=>{connection(false);status('Offline for a moment. The shared meadow will reconnect when you are back.');});
   new ResizeObserver(resize).observe(canvas);
-  byId('meadow-loading').hidden = true;
-  counters();
-  pauseLabel();
-  chooseTool('watch');
-  if (paused) status('A peaceful start for reduced motion. Press Play to bring the meadow to life.');
-  resize();
-  schedule();
+  pauseLabel();controls();resize();poll();
 }
 
 function ellipse(c, x, y, rx, ry, color, angle = 0) {

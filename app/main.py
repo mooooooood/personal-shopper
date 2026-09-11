@@ -10,11 +10,13 @@ from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app.database import load_site
+from app.meadow_service import lifespan, router as meadow_router
 
 ROOT = Path(__file__).resolve().parent.parent
 SITE = load_site()
 BASE_URL = os.getenv('SITE_URL', '').rstrip('/')
-app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+app.include_router(meadow_router)
 app.mount('/static', StaticFiles(directory=ROOT / 'app/static'), name='static')
 env = Environment(loader=FileSystemLoader(ROOT / 'app/templates'), autoescape=select_autoescape(['html']))
 contact = SITE['contact']

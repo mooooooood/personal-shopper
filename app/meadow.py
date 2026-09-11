@@ -1,0 +1,453 @@
+"""One bounded, server-owned rabbit meadow and its SQLite checkpoint.
+
+Coordinates are always 1000 x 600 regardless of a visitor's screen. The service
+owns the clock; this model does not run threads or advance while it is unloaded.
+"""
+from contextlib import closing
+from copy import deepcopy
+import json
+import math
+from pathlib import Path
+import random
+import sqlite3
+
+
+class Meadow:
+    width = 1000
+    height = 600
+    adult_age = 30
+    nesting_duration = 2.8
+    margin = 28
+    pond = {"x": 825, "y": 135, "rx": 114, "ry": 72}
+    schema_version = 1
+
+    def __init__(self, seed=None, *, initial_count=12, max_rabbits=60):
+        if type(max_rabbits) is not int or not 1 <= max_rabbits <= 60:
+            raise ValueError("max_rabbits must be between 1 and 60")
+        if type(initial_count) is not int or not 0 <= initial_count <= max_rabbits:
+            raise ValueError("initial_count exceeds meadow capacity")
+        self._random = random.Random(seed)
+        self.max_rabbits = max_rabbits
+        self.rabbits, self.basket, self.carrots, self.pairs = [], [], [], []
+        self.receipts = []
+        self.time = 0.0
+        self.born_count = 0
+        self._next_rabbit_id = self._next_carrot_id = self._next_pair_id = 1
+        self._pair_check = 0.0
+        self._waypoints = [
+            {"x": self.pond["x"] + math.cos(i * math.pi / 8) * self.pond["rx"] * 1.06,
+             "y": self.pond["y"] + math.sin(i * math.pi / 8) * self.pond["ry"] * 1.06}
+            for i in range(16)
+        ]
+        self.rabbits = [self._make_rabbit(adult=True) for _ in range(initial_count)]
+
+    @property
+    def total_count(self):
+        return len(self.rabbits) + len(self.basket)
+
+    def _between(self, low, high):
+        return self._random.uniform(low, high)
+
+    @staticmethod
+    def _distance(first, second):
+        return math.hypot(first["x"] - second["x"], first["y"] - second["y"])
+
+    @staticmethod
+    def _finite(value):
+        return type(value) in (int, float) and math.isfinite(value)
+
+    def _safe_point(self, x=None, y=None):
+        x = x if self._finite(x) else self._between(self.margin, self.width - self.margin)
+        y = y if self._finite(y) else self._between(self.margin, self.height - self.margin)
+        point = {"x": max(self.margin, min(self.width - self.margin, x)),
+                 "y": max(self.margin, min(self.height - self.margin, y))}
+        dx = (point["x"] - self.pond["x"]) / self.pond["rx"]
+        dy = (point["y"] - self.pond["y"]) / self.pond["ry"]
+        radius = math.hypot(dx, dy)
+        if radius < 1.015:
+            angle = math.atan2(dy, dx) if radius > 0.0001 else math.pi
+            point["x"] = self.pond["x"] + math.cos(angle) * self.pond["rx"] * 1.02
+            point["y"] = self.pond["y"] + math.sin(angle) * self.pond["ry"] * 1.02
+        return point
+
+    def is_safe_position(self, x, y):
+        return (self._finite(x) and self._finite(y)
+                and self.margin - .001 <= x <= self.width - self.margin + .001
+                and self.margin - .001 <= y <= self.height - self.margin + .001
+                and ((x - self.pond["x"]) / self.pond["rx"]) ** 2
+                + ((y - self.pond["y"]) / self.pond["ry"]) ** 2 >= .9999)
+
+    def _segment_clear(self, start, end):
+        ax = (start["x"] - self.pond["x"]) / self.pond["rx"]
+        ay = (start["y"] - self.pond["y"]) / self.pond["ry"]
+        dx = (end["x"] - start["x"]) / self.pond["rx"]
+        dy = (end["y"] - start["y"]) / self.pond["ry"]
+        length = dx * dx + dy * dy
+        progress = max(0, min(1, -(ax * dx + ay * dy) / length)) if length else 0
+        return (ax + dx * progress) ** 2 + (ay + dy * progress) ** 2 >= 1
+
+    def _route_to(self, start, destination):
+        if self._segment_clear(start, destination):
+            return [destination]
+        # At most 18 nodes. A small visibility graph routes rabbits around water.
+        nodes = [start, destination, *self._waypoints]
+        costs = [math.inf] * len(nodes)
+        previous = [-1] * len(nodes)
+        pending = set(range(len(nodes)))
+        costs[0] = 0
+        while pending:
+            current = min(pending, key=lambda item: costs[item])
+            if not math.isfinite(costs[current]):
+                break
+            if current == 1:
+                path, index = [], 1
+                while index != 0:
+                    path.insert(0, {"x": nodes[index]["x"], "y": nodes[index]["y"]})
+                    index = previous[index]
+                return path
+            pending.remove(current)
+            for index in pending:
+                if not self._segment_clear(nodes[current], nodes[index]):
+                    continue
+                cost = costs[current] + self._distance(nodes[current], nodes[index])
+                if cost < costs[index]:
+                    costs[index], previous[index] = cost, current
+        return []
+
+    def _move_toward(self, rabbit, target):
+        rabbit["_path"] = self._route_to(rabbit, self._safe_point(target["x"], target["y"]))
+        rabbit["moving"] = bool(rabbit["_path"])
+        if not rabbit["pairId"]:
+            rabbit["state"] = "hopping" if rabbit["moving"] else "idle"
+
+    def _make_rabbit(self, x=None, y=None, adult=False):
+        point = self._safe_point(x, y)
+        rabbit = {
+            "id": self._next_rabbit_id, **point,
+            "age": self.adult_age + self._between(3, 25) if adult else 0,
+            "adult": adult, "state": "idle", "moving": False,
+            "hopProgress": 0, "pairProgress": 0,
+            "direction": self._random.choice((-1, 1)), "partnerId": None, "pairId": None,
+            "cooldown": self._between(9, 13) if adult else self._between(3, 6),
+            "_wait": self._between(.1, 1.5), "_speed": self._between(65, 92),
+            "_path": [], "_carrotId": None,
+        }
+        self._next_rabbit_id += 1
+        return rabbit
+
+    def _settle(self, rabbit):
+        rabbit.update(state="idle", moving=False, hopProgress=0, pairProgress=0,
+                      partnerId=None, pairId=None, _path=[], _carrotId=None,
+                      _wait=self._between(.4, 1.5))
+
+    def _end_pair(self, pair, interrupted=False):
+        self.pairs.remove(pair)
+        for rabbit in self.rabbits:
+            if rabbit["id"] in (pair["firstId"], pair["secondId"]):
+                self._settle(rabbit)
+                rabbit["cooldown"] = self._between(5, 8) if interrupted else self._between(18, 26)
+
+    def _pair_rabbits(self):
+        vacancies = self.max_rabbits - self.total_count - len(self.pairs)
+        eligible = [rabbit for rabbit in self.rabbits
+                    if rabbit["adult"] and rabbit["cooldown"] <= 0 and not rabbit["pairId"]]
+        while len(eligible) > 1 and vacancies > 0:
+            first, second = min(((first, second) for i, first in enumerate(eligible)
+                                 for second in eligible[i + 1:]),
+                                key=lambda pair: self._distance(*pair))
+            eligible.remove(first)
+            eligible.remove(second)
+            point = self._safe_point((first["x"] + second["x"]) / 2,
+                                     (first["y"] + second["y"]) / 2)
+            pair = {"id": self._next_pair_id, "firstId": first["id"], "secondId": second["id"],
+                    **point, "phase": "approaching", "progress": 0, "elapsed": 0}
+            self._next_pair_id += 1
+            self.pairs.append(pair)
+            for rabbit, partner, offset in ((first, second, -11), (second, first, 11)):
+                rabbit.update(pairId=pair["id"], partnerId=partner["id"], state="pairing", _carrotId=None)
+                self._move_toward(rabbit, self._safe_point(point["x"] + offset, point["y"]))
+            vacancies -= 1
+
+    def _advance_movement(self, rabbit, dt):
+        movement = rabbit["_speed"] * dt * (1 if rabbit["adult"] else .72)
+        was_moving = bool(rabbit["_path"])
+        while movement > 0 and rabbit["_path"]:
+            destination = rabbit["_path"][0]
+            gap = self._distance(rabbit, destination)
+            if abs(destination["x"] - rabbit["x"]) > .01:
+                rabbit["direction"] = 1 if destination["x"] > rabbit["x"] else -1
+            if gap <= movement:
+                rabbit.update(destination)
+                rabbit["_path"].pop(0)
+                movement -= gap
+            else:
+                rabbit["x"] += (destination["x"] - rabbit["x"]) / gap * movement
+                rabbit["y"] += (destination["y"] - rabbit["y"]) / gap * movement
+                movement = 0
+        rabbit["moving"] = bool(rabbit["_path"])
+        rabbit["hopProgress"] = (rabbit["hopProgress"] + dt / .48) % 1 if rabbit["moving"] else 0
+        if was_moving and not rabbit["moving"] and not rabbit["pairId"]:
+            rabbit.update(state="idle", _wait=self._between(.5, 2.2))
+
+    def update(self, dt):
+        """Advance one bounded step; the service decides whether visitors are present."""
+        if not self._finite(dt) or dt <= 0:
+            return
+        dt = min(dt, .1)
+        self.time += dt
+        for carrot in self.carrots:
+            carrot["remaining"] -= dt
+        self.carrots[:] = [carrot for carrot in self.carrots if carrot["remaining"] > 0]
+        for rabbit in self.basket:
+            rabbit["age"] += dt
+            rabbit["adult"] = rabbit["age"] >= self.adult_age
+        for rabbit in self.rabbits:
+            rabbit["age"] += dt
+            rabbit["adult"] = rabbit["age"] >= self.adult_age
+            if rabbit["adult"]:
+                rabbit["cooldown"] = max(0, rabbit["cooldown"] - dt)
+            if not rabbit["pairId"]:
+                nearby = [carrot for carrot in self.carrots if self._distance(rabbit, carrot) < 330]
+                carrot = min(nearby, key=lambda item: self._distance(rabbit, item)) if nearby else None
+                if carrot and rabbit["_carrotId"] != carrot["id"]:
+                    rabbit["_carrotId"] = carrot["id"]
+                    self._move_toward(rabbit, self._safe_point(carrot["x"] + self._between(-15, 15),
+                                                             carrot["y"] + self._between(-12, 12)))
+                elif not carrot:
+                    rabbit["_carrotId"] = None
+                if not rabbit["moving"]:
+                    rabbit["_wait"] -= dt
+                    if carrot and self._distance(rabbit, carrot) < 32:
+                        carrot["remaining"] -= dt * .2
+                    elif rabbit["_wait"] <= 0:
+                        self._move_toward(rabbit, self._safe_point(rabbit["x"] + self._between(-145, 145),
+                                                                 rabbit["y"] + self._between(-105, 105)))
+            self._advance_movement(rabbit, dt)
+        lookup = {rabbit["id"]: rabbit for rabbit in self.rabbits}
+        for pair in list(self.pairs):
+            first, second = lookup.get(pair["firstId"]), lookup.get(pair["secondId"])
+            if not first or not second:
+                self._end_pair(pair, interrupted=True)
+                continue
+            if pair["phase"] == "approaching" and not first["moving"] and not second["moving"]:
+                pair["phase"] = first["state"] = second["state"] = "nesting"
+            if pair["phase"] == "nesting":
+                pair["elapsed"] += dt
+                pair["progress"] = min(1, pair["elapsed"] / self.nesting_duration)
+                first["pairProgress"] = second["pairProgress"] = pair["progress"]
+                if pair["elapsed"] >= self.nesting_duration:
+                    if self.total_count < self.max_rabbits:
+                        self.rabbits.append(self._make_rabbit(pair["x"], pair["y"] + 15))
+                        self.born_count += 1
+                    self._end_pair(pair)
+        self._pair_check -= dt
+        if self._pair_check <= 0:
+            self._pair_rabbits()
+            self._pair_check = .5
+
+    def add_carrot(self, x, y):
+        if len(self.carrots) >= 6 or not self._finite(x) or not self._finite(y):
+            return None
+        carrot = {"id": self._next_carrot_id, **self._safe_point(x, y), "remaining": 18, "lifetime": 18}
+        self._next_carrot_id += 1
+        self.carrots.append(carrot)
+        return carrot
+
+    def catch(self, rabbit_id):
+        if type(rabbit_id) is not int:
+            return None
+        rabbit = next((rabbit for rabbit in self.rabbits if rabbit["id"] == rabbit_id), None)
+        if rabbit is None:
+            return None
+        pair = next((pair for pair in self.pairs if pair["id"] == rabbit["pairId"]), None)
+        if pair:
+            self._end_pair(pair, interrupted=True)
+        self.rabbits.remove(rabbit)
+        self._settle(rabbit)
+        rabbit["state"] = "basket"
+        self.basket.append(rabbit)
+        return rabbit
+
+    def release_one(self):
+        if not self.basket:
+            return None
+        rabbit = self.basket.pop(0)
+        rabbit.update(self._safe_point())
+        self._settle(rabbit)
+        rabbit["cooldown"] = max(rabbit["cooldown"], 5)
+        self.rabbits.append(rabbit)
+        return rabbit
+
+    def snapshot(self):
+        public = lambda rabbit: {key: value for key, value in rabbit.items() if not key.startswith("_")}
+        return {"width": self.width, "height": self.height, "maxRabbits": self.max_rabbits,
+                "adultAge": self.adult_age, "time": self.time, "bornCount": self.born_count,
+                "totalCount": self.total_count, "rabbits": [public(rabbit) for rabbit in self.rabbits],
+                "basket": [public(rabbit) for rabbit in self.basket],
+                "carrots": deepcopy(self.carrots), "pairs": deepcopy(self.pairs)}
+
+    def export_state(self):
+        # JSON encoding turns random's tuple hierarchy into arrays; from_state
+        # restores that hierarchy before calling setstate(). No pickle is used.
+        return deepcopy({"version": self.schema_version, "width": self.width, "height": self.height,
+                         "maxRabbits": self.max_rabbits, "time": self.time, "bornCount": self.born_count,
+                         "rabbits": self.rabbits, "basket": self.basket, "carrots": self.carrots,
+                         "pairs": self.pairs, "receipts": self.receipts, "nextRabbitId": self._next_rabbit_id,
+                         "nextCarrotId": self._next_carrot_id, "nextPairId": self._next_pair_id,
+                         "pairCheck": self._pair_check, "randomState": self._random.getstate()})
+
+    @classmethod
+    def from_state(cls, state):
+        """Reject incomplete/corrupt state instead of silently deleting a shared world."""
+        try:
+            if not isinstance(state, dict) or state["version"] != cls.schema_version:
+                raise ValueError("unsupported meadow state version")
+            if state["width"] != cls.width or state["height"] != cls.height:
+                raise ValueError("unsupported meadow dimensions")
+            model = cls(0, initial_count=0, max_rabbits=state["maxRabbits"])
+            model.time, model.born_count = state["time"], state["bornCount"]
+            model._pair_check = state["pairCheck"]
+            for name in ("rabbits", "basket", "carrots", "pairs", "receipts"):
+                setattr(model, name, deepcopy(state[name]))
+            model._next_rabbit_id = state["nextRabbitId"]
+            model._next_carrot_id = state["nextCarrotId"]
+            model._next_pair_id = state["nextPairId"]
+            model._validate_state()
+            def tuples(value):
+                return tuple(tuples(item) for item in value) if isinstance(value, (list, tuple)) else value
+            model._random.setstate(tuples(state["randomState"]))
+            return model
+        except (KeyError, TypeError, IndexError, OverflowError, ValueError) as error:
+            raise ValueError(f"Invalid persisted meadow state: {error}") from error
+
+    def _validate_state(self):
+        def number(value, low=0, high=math.inf):
+            if not self._finite(value) or not low <= value <= high:
+                raise ValueError("invalid numeric state")
+        def integer(value, low=1):
+            if type(value) is not int or value < low:
+                raise ValueError("invalid identifier or count")
+        def point(item):
+            if not isinstance(item, dict) or not self.is_safe_position(item["x"], item["y"]):
+                raise ValueError("position outside meadow")
+        for items, limit in ((self.rabbits, 60), (self.basket, 60), (self.carrots, 6), (self.pairs, 30)):
+            if not isinstance(items, list) or len(items) > limit:
+                raise ValueError("invalid entity collection")
+        if self.total_count + len(self.pairs) > self.max_rabbits:
+            raise ValueError("population exceeds capacity")
+        if not isinstance(self.receipts, list) or len(self.receipts) > 1000:
+            raise ValueError("invalid action receipts")
+        request_ids = []
+        for receipt in self.receipts:
+            if not isinstance(receipt, dict) or type(receipt["ok"]) is not bool:
+                raise ValueError("invalid action receipt")
+            for key in ("requestId", "signature", "code"):
+                if not isinstance(receipt[key], str) or not 1 <= len(receipt[key]) <= 512:
+                    raise ValueError("invalid action receipt field")
+            request_ids.append(receipt["requestId"])
+        if len(set(request_ids)) != len(request_ids):
+            raise ValueError("duplicate action receipt")
+        number(self.time)
+        integer(self.born_count, 0)
+        number(self._pair_check, 0, .5)
+        all_rabbits = self.rabbits + self.basket
+        ids, carrot_ids, pair_ids = [], [], []
+        for rabbit in all_rabbits:
+            point(rabbit)
+            integer(rabbit["id"])
+            ids.append(rabbit["id"])
+            for key in ("age", "cooldown", "_speed"):
+                number(rabbit[key])
+            number(rabbit["_wait"], -math.inf, 3)
+            number(rabbit["hopProgress"], 0, 1)
+            number(rabbit["pairProgress"], 0, 1)
+            if type(rabbit["adult"]) is not bool or rabbit["adult"] != (rabbit["age"] >= self.adult_age):
+                raise ValueError("inconsistent rabbit maturity")
+            if type(rabbit["moving"]) is not bool or type(rabbit["direction"]) is not int or rabbit["direction"] not in (-1, 1):
+                raise ValueError("invalid movement state")
+            if rabbit["state"] not in ("idle", "hopping", "pairing", "nesting", "basket"):
+                raise ValueError("invalid rabbit state")
+            path = rabbit["_path"]
+            if not isinstance(path, list) or len(path) > 18 or rabbit["moving"] != bool(path):
+                raise ValueError("invalid route")
+            previous = rabbit
+            for destination in path:
+                point(destination)
+                if not self._segment_clear(previous, destination):
+                    raise ValueError("route crosses water")
+                previous = destination
+            for key in ("partnerId", "pairId", "_carrotId"):
+                if rabbit[key] is not None:
+                    integer(rabbit[key])
+        if len(set(ids)) != len(ids):
+            raise ValueError("duplicate rabbit")
+        if any(rabbit["state"] != "basket" or rabbit["pairId"] or rabbit["moving"] for rabbit in self.basket):
+            raise ValueError("invalid basket")
+        if any(rabbit["state"] == "basket" for rabbit in self.rabbits):
+            raise ValueError("basket rabbit on grass")
+        for carrot in self.carrots:
+            point(carrot)
+            integer(carrot["id"])
+            carrot_ids.append(carrot["id"])
+            number(carrot["remaining"], -2, 18)
+            if carrot["lifetime"] != 18:
+                raise ValueError("invalid carrot lifetime")
+        lookup = {rabbit["id"]: rabbit for rabbit in self.rabbits}
+        partnered = set()
+        for pair in self.pairs:
+            point(pair)
+            integer(pair["id"])
+            pair_ids.append(pair["id"])
+            number(pair["progress"], 0, 1)
+            number(pair["elapsed"], 0, self.nesting_duration)
+            if pair["phase"] not in ("approaching", "nesting") or pair["firstId"] == pair["secondId"]:
+                raise ValueError("invalid pair")
+            for identity, partner in ((pair["firstId"], pair["secondId"]), (pair["secondId"], pair["firstId"])):
+                integer(identity)
+                rabbit = lookup[identity]
+                if identity in partnered or not rabbit["adult"] or rabbit["pairId"] != pair["id"] or rabbit["partnerId"] != partner:
+                    raise ValueError("inconsistent pairing")
+                partnered.add(identity)
+        for rabbit in all_rabbits:
+            if (rabbit["pairId"] is not None) != (rabbit["id"] in partnered):
+                raise ValueError("orphaned pairing")
+            if rabbit["pairId"] is None and rabbit["partnerId"] is not None:
+                raise ValueError("orphaned partner")
+        for identities, next_id in ((ids, self._next_rabbit_id), (carrot_ids, self._next_carrot_id), (pair_ids, self._next_pair_id)):
+            integer(next_id)
+            if len(set(identities)) != len(identities) or next_id <= max(identities, default=0):
+                raise ValueError("invalid next identifier")
+
+
+def load_meadow(path):
+    """Create the singleton once, preserving all unrelated catalogue tables."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with closing(sqlite3.connect(path, timeout=10)) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
+        exists = connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='meadow_state'").fetchone()
+        if exists is None:
+            connection.execute("CREATE TABLE meadow_state (id INTEGER PRIMARY KEY CHECK(id=1), state TEXT NOT NULL, updated_at TEXT NOT NULL)")
+            model = Meadow()
+            connection.execute("INSERT INTO meadow_state(id, state, updated_at) VALUES(1, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+                               (json.dumps(model.export_state(), separators=(",", ":"), allow_nan=False),))
+            return model
+        row = connection.execute("SELECT state FROM meadow_state WHERE id=1").fetchone()
+        if row is None:
+            raise ValueError("Invalid persisted meadow state: singleton row is missing")
+        try:
+            state = json.loads(row[0])
+        except (TypeError, ValueError) as error:
+            raise ValueError("Invalid persisted meadow state: unreadable JSON") from error
+        return Meadow.from_state(state)
+
+
+def save_meadow(path, meadow):
+    """Atomically checkpoint the whole world; a failed write retains the old row."""
+    state = meadow.export_state()
+    Meadow.from_state(state)  # Never overwrite a valid checkpoint with corrupt state.
+    encoded = json.dumps(state, separators=(",", ":"), allow_nan=False)
+    with closing(sqlite3.connect(path, timeout=10)) as connection, connection:
+        cursor = connection.execute("UPDATE meadow_state SET state=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=1", (encoded,))
+        if cursor.rowcount != 1:
+            raise ValueError("Meadow must be loaded before it can be saved")

@@ -7,23 +7,24 @@
   <meta name="description" content="{{ site.description }}">
   <meta name="theme-color" content="#d9e7bf">
   {% if base_url %}<link rel="canonical" href="{{ base_url }}/">{% endif %}
-  <link rel="stylesheet" href="/static/meadow.css?v=meadow2">
+  <link rel="stylesheet" href="/static/meadow.css?v=meadow3">
 </head>
 <body>
   <main id="main" class="meadow-world" aria-label="The rabbit meadow">
     <div id="meadow-stage" class="meadow-stage">
-      <canvas id="meadow-canvas" width="1000" height="600" tabindex="0" aria-label="Interactive rabbit meadow" aria-describedby="meadow-help">A little two-dimensional meadow where rabbits hop, meet and have babies. Your browser needs canvas support to display the meadow.</canvas>
+      <canvas id="meadow-canvas" width="1000" height="600" tabindex="0" aria-label="Interactive rabbit meadow" aria-describedby="meadow-help">A shared two-dimensional meadow where rabbits hop, meet and have babies. Everyone visits the same rabbits. Your browser needs canvas support to display the meadow.</canvas>
       <div id="meadow-loading" class="meadow-loading"><span class="loading-mark" aria-hidden="true">♧</span><span>Opening the garden gate…</span></div>
     </div>
 
     <div class="hud-top">
       <section class="meadow-heading glass" aria-labelledby="meadow-title">
-        <div class="meadow-name"><svg class="rabbit-mark" aria-hidden="true" width="28" height="35" viewBox="0 0 28 35" fill="none"><path d="M8 17C3 9 5 1 8 2c3 1 3 8 4 12m5 0c0-7 1-13 4-12 3 1 3 8-1 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M24 25c0 6-4 8-10 8S4 31 4 25c0-7 4-11 10-11s10 4 10 11Z" fill="currentColor"/><circle cx="10" cy="24" r="1" fill="#f7f8ed"/><circle cx="18" cy="24" r="1" fill="#f7f8ed"/></svg><div><p class="tiny-label">A LITTLE ROOM TO PLAY</p><h1 id="meadow-title">Rabbit meadow</h1></div></div>
+        <div class="meadow-name"><svg class="rabbit-mark" aria-hidden="true" width="28" height="35" viewBox="0 0 28 35" fill="none"><path d="M8 17C3 9 5 1 8 2c3 1 3 8 4 12m5 0c0-7 1-13 4-12 3 1 3 8-1 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M24 25c0 6-4 8-10 8S4 31 4 25c0-7 4-11 10-11s10 4 10 11Z" fill="currentColor"/><circle cx="10" cy="24" r="1" fill="#f7f8ed"/><circle cx="18" cy="24" r="1" fill="#f7f8ed"/></svg><div><p class="tiny-label">ONE SHARED LITTLE WORLD</p><h1 id="meadow-title">Rabbit meadow</h1></div></div>
         <div class="meadow-stats" aria-label="Meadow population">
           <span><strong id="rabbit-count">0</strong><small>rabbits</small></span>
           <span><strong id="born-count">0</strong><small>babies born</small></span>
-          <span><strong id="basket-count">0</strong><small>in basket</small></span>
+          <span><strong id="basket-count">0</strong><small>shared basket</small></span>
         </div>
+        <span id="connection-status" class="connection-status" role="status" aria-live="polite" aria-atomic="true" data-state="connecting">Connecting…</span>
       </section>
       <div class="hud-links">
         <button class="about-button glass" type="button" id="open-about" aria-haspopup="dialog" aria-controls="about-dialog"><span>About &amp; contact</span><span class="about-arrow" aria-hidden="true">↗</span></button>
@@ -32,7 +33,7 @@
     </div>
 
     <div class="hud-bottom">
-      <p id="meadow-status" class="meadow-status" role="status" aria-live="polite" aria-atomic="true">Make yourself at home. The rabbits will do the same.</p>
+      <p id="meadow-status" class="meadow-status" role="status" aria-live="polite" aria-atomic="true">One meadow, shared by everyone. Make yourself at home.</p>
       <div class="meadow-toolbar glass" aria-label="Meadow controls">
         <div class="meadow-tools" role="group" aria-label="Choose a meadow tool">
           <button type="button" id="tool-watch" aria-pressed="true"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12Z" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/></svg><span>Watch</span></button>
@@ -43,7 +44,7 @@
         <div class="meadow-actions" role="group" aria-label="Manage your meadow">
           <button type="button" id="pause-meadow" aria-pressed="false">Pause</button>
           <button type="button" id="release-rabbit" disabled>Release</button>
-          <button type="button" id="reset-meadow">New meadow</button>
+          <button type="button" id="reset-meadow" aria-label="Sync the shared meadow">Sync</button>
         </div>
       </div>
     </div>
@@ -114,15 +115,17 @@
       <p class="eyebrow">MAKE YOURSELF AT HOME</p>
       <h2 id="help-title">Small lives.<br>Simple pleasures.</h2>
       <div id="meadow-help">
-        <p>Watch the rabbits hop and meet. From time to time, a grown-up pair will share a heart and welcome a baby.</p>
-        <dl class="help-steps"><div><dt>Watch</dt><dd>Take a little pause. Tap a rabbit to say hello.</dd></div><div><dt>Carrot</dt><dd>Tap the grass to leave a treat and see who hops over.</dd></div><div><dt>Catch</dt><dd>Tap a rabbit to gently put it in your basket. Release brings one back.</dd></div></dl>
-        <p>Use Pause whenever you like. New meadow starts a fresh little world. Refreshing this page also resets the rabbits; nothing is saved.</p>
+        <p>Everyone visits the same little world. The rabbits and basket are shared: a carrot left or a rabbit caught or released by another visitor will appear here too. Grown-up rabbits meet, share a heart and welcome a baby.</p>
+        <dl class="help-steps"><div><dt>Watch</dt><dd>Take a little pause. Tap a rabbit to say hello.</dd></div><div><dt>Carrot</dt><dd>Tap the grass to leave a treat for everyone’s rabbits.</dd></div><div><dt>Catch</dt><dd>Tap a rabbit to gently put it in the shared basket. Release brings one back for everyone.</dd></div></dl>
+        <p><strong>Pause</strong> freezes only your view and disables feeding, catching and releasing. <strong>Play</strong> brings you back to the latest shared state. Other visitors can keep playing while you take a break.</p>
+        <p><strong>Sync</strong> fetches the latest shared state. Refreshing the page or returning later keeps the meadow’s progress. When nobody is watching, the meadow rests until someone returns.</p>
+        <p>If the connection drops, interactions are disabled while the page reconnects. Your view will catch up when the connection returns.</p>
         <p class="keyboard-tip"><strong>Playing with a keyboard?</strong> Focus the map, use the arrow keys to move the cursor, then press Enter or Space to use your selected tool. Press Escape to close this window.</p>
       </div>
-      <p class="dialog-footnote">There’s no score. Just a little room to play.</p>
+      <p class="dialog-footnote">There’s no score. Just one little world to share.</p>
     </div>
   </dialog>
-  <script type="module" src="/static/meadow.js?v=meadow2"></script>
-  <script type="module" src="/static/sourcing.js?v=meadow2"></script>
+  <script type="module" src="/static/meadow.js?v=meadow3"></script>
+  <script type="module" src="/static/sourcing.js?v=meadow3"></script>
 </body>
 </html>
