@@ -45,8 +45,7 @@ class SiteTests(unittest.TestCase):
         self.assertIn('lang="en"', page)
         self.assertIn('Something else?', page)
         self.assertIn('I run this', page)
-        self.assertIn('Who I am', page)
-        self.assertIn('The middleman part?', page)
+        self.assertIn('Hello from China.', page)
         self.assertNotIn('Tell us what', page)
         self.assertIn('id="request-message"', page)
         self.assertNotIn('adventure.js', page)
@@ -54,6 +53,27 @@ class SiteTests(unittest.TestCase):
         response = self.client.get('/static/sourcing.js')
         self.assertEqual(response.status_code, 200)
         self.assertIn('javascript', response.headers['content-type'])
+
+    def test_meadow_assets_and_accessible_controls(self):
+        page = self.client.get('/').text
+        self.assertIn('id="meadow-canvas"', page)
+        self.assertIn('tabindex="0"', page)
+        self.assertIn('aria-describedby="meadow-help"', page)
+        for asset, media_type in [('meadow.css', 'text/css'), ('meadow.js', 'javascript'), ('meadow-model.js', 'javascript')]:
+            response = self.client.get('/static/' + asset)
+            self.assertEqual(response.status_code, 200, asset)
+            self.assertIn(media_type, response.headers['content-type'], asset)
+        for control in ['tool-watch', 'tool-carrot', 'tool-net', 'pause-meadow', 'release-rabbit', 'reset-meadow', 'open-about', 'close-about', 'open-help', 'close-help']:
+            self.assertIn('id="' + control + '"', page)
+        self.assertIn('id="about-dialog"', page)
+        self.assertIn('id="help-dialog"', page)
+        self.assertNotIn('href="/static/style.css', page)
+
+    def test_home_preserves_and_escapes_personal_intro(self):
+        with patch.dict(main.SITE, {'about': 'My own story <script>alert(1)</script>'}):
+            page = main.render('home.html')
+        self.assertIn('My own story &lt;script&gt;', page)
+        self.assertNotIn('<script>alert(1)</script>', page)
 
     def test_escape_content(self):
         rendered = main.render('product.html', product={**main.SITE['products'][0], 'name': '<script>alert(1)</script>'})
