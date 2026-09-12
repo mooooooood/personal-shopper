@@ -2,6 +2,22 @@
 // This module only smooths received snapshots; it never rolls a random event.
 const coats = new Set(['white','cream','caramel','chocolate','silver','charcoal','ginger','spotted']);
 function validCoat(rabbit) { return rabbit.coat === undefined || coats.has(rabbit.coat); }
+const identity=value=>Number.isSafeInteger(value)&&value>0;
+const between=(value,low,high)=>Number.isFinite(value)&&value>=low&&value<=high;
+function validLassos(state) {
+  const ropes=state.lassos??[],results=state.lassoResults??[];
+  return Array.isArray(ropes)&&ropes.length<=8&&Array.isArray(results)&&results.length<=12
+    && ropes.every(rope=>identity(rope.id)&&identity(rope.rabbitId)
+      && between(rope.anchorX,0,1000)&&between(rope.anchorY,0,600)
+      && between(rope.progress,0,1)&&between(rope.remaining,0,25)&&typeof rope.pulling==='boolean'
+      &&state.rabbits.some(rabbit=>rabbit.id===rope.rabbitId))
+    && new Set(ropes.map(rope=>rope.id)).size===ropes.length
+    && new Set(ropes.map(rope=>rope.rabbitId)).size===ropes.length
+    && (state.myLassoId==null||ropes.some(rope=>rope.id===state.myLassoId))
+    && results.every(result=>identity(result.id)&&identity(result.rabbitId)
+      &&['caught','stolen','escaped','cancelled'].includes(result.outcome)
+      &&between(result.x,0,1000)&&between(result.y,0,600)&&between(result.time,0,Infinity));
+}
 function validEncounter(event) {
   return event == null || (Number.isSafeInteger(event.id) && event.id > 0
     && ['eagle','wolf'].includes(event.kind) && ['warning','chasing','leaving'].includes(event.phase)
@@ -45,7 +61,13 @@ export function createSnapshotBuffer(duration = 1000) {
         encounter.remaining = priorEvent.remaining + (encounter.remaining - priorEvent.remaining) * progress;
       }
     }
-    return { ...latest, time, encounter, rabbits: latest.rabbits.map(rabbit => {
+    const priorRopes=new Map((start?.lassos||[]).map(rope=>[rope.id,rope]));
+    const lassos=(latest.lassos||[]).map(rope=>{
+      const prior=priorRopes.get(rope.id);
+      return {...rope,progress:prior?prior.progress+(rope.progress-prior.progress)*progress:rope.progress,
+        remaining:prior?prior.remaining+(rope.remaining-prior.remaining)*progress:rope.remaining};
+    });
+    return { ...latest, time, encounter, lassos, rabbits: latest.rabbits.map(rabbit => {
       const old = previous.get(rabbit.id);
       // A server rabbit may already be at rest while its previous movement is
       // still reaching the screen. Animate that real displacement, not moving
@@ -73,6 +95,7 @@ export function createSnapshotBuffer(duration = 1000) {
       || state.carrots.length > 6 || ![...state.rabbits,...state.basket].every(rabbit =>
         Number.isSafeInteger(rabbit.id) && Number.isFinite(rabbit.x) && Number.isFinite(rabbit.y) && validCoat(rabbit))
       || !validEncounter(state.encounter)
+      || !validLassos(state)
       || (state.raidedCount !== undefined && (!Number.isSafeInteger(state.raidedCount) || state.raidedCount < 0))) {
       throw new Error('Invalid meadow snapshot');
     }

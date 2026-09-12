@@ -154,3 +154,31 @@ test('invalid coats and wildlife payloads cannot replace a good snapshot', () =>
     assert.equal(buffer.latest.revision,1);
   }
 });
+
+const rope=(id,rabbitId,progress=0)=>({id,rabbitId,anchorX:500,anchorY:380,progress,remaining:20,pulling:true});
+test('a lasso keeps its rabbit on grass while progress and position interpolate',()=>{
+  const buffer=createSnapshotBuffer();
+  buffer.accept(snapshot(1,[rabbit(1,300)],{lassos:[rope(8,1,.1)],myLassoId:8}),0);
+  buffer.accept(snapshot(2,[rabbit(1,400)],{lassos:[rope(8,1,.5)],myLassoId:8}),1000);
+  const midway=buffer.sample(1500);
+  assert.equal(midway.rabbits[0].x,350);assert.ok(Math.abs(midway.lassos[0].progress-.3)<1e-10);
+  assert.equal(midway.basket.length,0);assert.equal(buffer.sample(100000).lassos[0].progress,.5);
+});
+test('a predator settlement clears the rope immediately and cannot be undone by an old poll',()=>{
+  const buffer=createSnapshotBuffer();
+  buffer.accept(snapshot(1,[rabbit(1,300)],{lassos:[rope(8,1,.8)],myLassoId:8}),0);
+  const result={id:8,rabbitId:1,outcome:'stolen',x:450,y:350,time:2};
+  buffer.accept(snapshot(2,[],{lassos:[],lassoResults:[result],myLassoId:null}),1000);
+  assert.equal(buffer.sample(1000).lassos.length,0);assert.equal(buffer.sample(1000).basket.length,0);
+  assert.equal(buffer.latest.lassoResults[0].outcome,'stolen');
+  assert.equal(buffer.accept(snapshot(1,[rabbit(1,300)],{lassos:[rope(8,1,.8)],myLassoId:8}),1500),false);
+});
+test('invalid, duplicate, and orphaned ropes never replace good shared state',()=>{
+  const buffer=createSnapshotBuffer();buffer.accept(snapshot(1,[rabbit(1,300)]),0);
+  for(const extra of [{lassos:[rope(1,99)]},{lassos:[rope(1,1),rope(2,1)]},
+    {lassos:[rope(1,1,2)]},{lassos:[rope(1,1)],myLassoId:2},
+    {lassoResults:[{id:1,rabbitId:1,outcome:'invalid',x:100,y:100,time:1}]}]){
+    assert.throws(()=>buffer.accept(snapshot(2,[rabbit(1,300)],extra),1000));
+    assert.equal(buffer.latest.revision,1);
+  }
+});

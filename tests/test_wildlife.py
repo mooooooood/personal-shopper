@@ -201,13 +201,13 @@ class WildlifePersistenceTests(unittest.TestCase):
             self.assertTrue(all(rabbit["coat"] == "white" for rabbit in migrated.rabbits + migrated.basket))
             for upgraded, original in zip(migrated.rabbits + migrated.basket, legacy["rabbits"] + legacy["basket"]):
                 self.assertEqual({key: value for key, value in upgraded.items() if key != "coat"}, original)
-            self.assertEqual(migrated.export_state()["version"], 2)
+            self.assertEqual(migrated.export_state()["version"], Meadow.schema_version)
             self.assertEqual(migrated.export_state(), Meadow.from_state(legacy).export_state())
             save_meadow(path, migrated)
             self.assertEqual(load_meadow(path).export_state(), migrated.export_state())
             with sqlite3.connect(path) as connection:
                 self.assertEqual(connection.execute("SELECT content FROM site_settings").fetchone()[0], "owner contact")
-                self.assertEqual(json.loads(connection.execute("SELECT state FROM meadow_state").fetchone()[0])["version"], 2)
+                self.assertEqual(json.loads(connection.execute("SELECT state FROM meadow_state").fetchone()[0])["version"], Meadow.schema_version)
 
     def test_each_phase_and_random_future_survive_json_and_sqlite_restart(self):
         with tempfile.TemporaryDirectory() as directory:
