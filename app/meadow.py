@@ -19,9 +19,19 @@ class Meadow:
     nesting_duration = 2.8
     margin = 28
     pond = {"x": 825, "y": 135, "rx": 114, "ry": 72}
-    schema_version = 3
+    schema_version = 4
     coats = ("white", "cream", "caramel", "chocolate", "silver", "charcoal", "ginger", "spotted")
     lasso_anchor = {"x": 500, "y": 380}
+    seat_anchors = [
+        {"seatId": 1, "x": 90, "y": 230},
+        {"seatId": 2, "x": 90, "y": 295},
+        {"seatId": 3, "x": 90, "y": 360},
+        {"seatId": 4, "x": 90, "y": 425},
+        {"seatId": 5, "x": 910, "y": 230},
+        {"seatId": 6, "x": 910, "y": 295},
+        {"seatId": 7, "x": 910, "y": 360},
+        {"seatId": 8, "x": 910, "y": 425},
+    ]
     lasso_lifetime = 25
     lasso_lease = 1.2
 
@@ -393,10 +403,20 @@ class Meadow:
     def lasso_for(self, owner):
         return next((item["id"] for item in self.lassos if item["_owner"] == owner), None)
 
-    def start_lasso(self, rabbit_id, owner):
+    @classmethod
+    def _anchor_for_seat(cls, seat_id):
+        if seat_id is None:
+            return dict(cls.lasso_anchor)
+        if type(seat_id) is not int or not 1 <= seat_id <= len(cls.seat_anchors):
+            raise ValueError("invalid lasso seat")
+        seat = cls.seat_anchors[seat_id - 1]
+        return {"x": seat["x"], "y": seat["y"]}
+
+    def start_lasso(self, rabbit_id, owner, seat_id=None):
         """Reserve a rabbit; a rope alone never moves it into the basket."""
         if not self._valid_owner(owner):
             raise ValueError("invalid lasso owner")
+        anchor = self._anchor_for_seat(seat_id)
         rabbit = next((item for item in self.rabbits if type(rabbit_id) is int and item["id"] == rabbit_id), None)
         if rabbit is None:
             return "rabbit_gone"
@@ -404,6 +424,8 @@ class Meadow:
             return "player_busy"
         if any(item["rabbitId"] == rabbit_id for item in self.lassos):
             return "rabbit_roped"
+        if seat_id is not None and any(item["seatId"] == seat_id for item in self.lassos):
+            return "seat_busy"
         if len(self.lassos) >= 8:
             return "lasso_limit"
         pair = next((item for item in self.pairs if item["id"] == rabbit["pairId"]), None)
@@ -411,10 +433,10 @@ class Meadow:
             self._end_pair(pair, interrupted=True)
         self._settle(rabbit)
         rabbit["state"] = "roped"
-        path = self._route_to(rabbit, dict(self.lasso_anchor))
+        path = self._route_to(rabbit, anchor)
         length = sum(self._distance(first, second) for first, second in zip([rabbit, *path], path))
         self.lassos.append({"id": self._next_lasso_id, "rabbitId": rabbit_id,
-                            "anchorX": self.lasso_anchor["x"], "anchorY": self.lasso_anchor["y"],
+                            "seatId": seat_id, "anchorX": anchor["x"], "anchorY": anchor["y"],
                             "remaining": self.lasso_lifetime, "_owner": owner,
                             "_path": path, "_length": length, "_duration": max(4.5, length / 75),
                             "_elapsed": 0.0, "_lease": 0.0})
@@ -459,6 +481,7 @@ class Meadow:
     def _finish_lasso(self, lasso, outcome, rabbit, *, settle=True):
         self.lassos.remove(lasso)
         self.lasso_results.append({"id": lasso["id"], "rabbitId": lasso["rabbitId"],
+                                   "seatId": lasso["seatId"], "anchorX": lasso["anchorX"], "anchorY": lasso["anchorY"],
                                    "outcome": outcome, "x": rabbit["x"], "y": rabbit["y"], "time": self.time})
         self.lasso_results[:] = self.lasso_results[-12:]
         if settle:
@@ -537,7 +560,7 @@ class Meadow:
         """Reject incomplete/corrupt state instead of silently deleting a shared world."""
         try:
             if (not isinstance(state, dict) or type(state["version"]) is not int
-                    or state["version"] not in (1, 2, cls.schema_version)):
+                    or state["version"] not in (1, 2, 3, cls.schema_version)):
                 raise ValueError("unsupported meadow state version")
             if state["width"] != cls.width or state["height"] != cls.height:
                 raise ValueError("unsupported meadow dimensions")
@@ -565,6 +588,13 @@ class Meadow:
                 model.lassos = deepcopy(state["lassos"])
                 model.lasso_results = deepcopy(state["lassoResults"])
                 model._next_lasso_id = state["nextLassoId"]
+                if state["version"] == 3:
+                    # Keep old pulls on their original route. New visits can
+                    # finish them without shifting the rabbit to a new seat.
+                    for lasso in model.lassos:
+                        lasso["seatId"] = None
+                    for result in model.lasso_results:
+                        result.update(seatId=None, anchorX=cls.lasso_anchor["x"], anchorY=cls.lasso_anchor["y"])
             def tuples(value):
                 return tuple(tuples(item) for item in value) if isinstance(value, (list, tuple)) else value
             model._random.setstate(tuples(state["randomState"]))
@@ -656,9 +686,9 @@ class Meadow:
             if carrot["lifetime"] != 18:
                 raise ValueError("invalid carrot lifetime")
         lookup = {rabbit["id"]: rabbit for rabbit in self.rabbits}
-        lasso_ids, lasso_rabbits, owners = [], [], []
+        lasso_ids, lasso_rabbits, owners, occupied_seats = [], [], [], []
         for lasso in self.lassos:
-            expected = {"id", "rabbitId", "anchorX", "anchorY", "remaining", "_owner", "_path",
+            expected = {"id", "rabbitId", "seatId", "anchorX", "anchorY", "remaining", "_owner", "_path",
                         "_length", "_duration", "_elapsed", "_lease"}
             if not isinstance(lasso, dict) or set(lasso) != expected or not self._valid_owner(lasso["_owner"]):
                 raise ValueError("invalid lasso owner or fields")
@@ -667,7 +697,10 @@ class Meadow:
             lasso_ids.append(lasso["id"])
             lasso_rabbits.append(lasso["rabbitId"])
             owners.append(lasso["_owner"])
-            if lasso["anchorX"] != self.lasso_anchor["x"] or lasso["anchorY"] != self.lasso_anchor["y"]:
+            anchor = self._anchor_for_seat(lasso["seatId"])
+            if lasso["seatId"] is not None:
+                occupied_seats.append(lasso["seatId"])
+            if lasso["anchorX"] != anchor["x"] or lasso["anchorY"] != anchor["y"]:
                 raise ValueError("invalid lasso anchor")
             number(lasso["remaining"], 1e-9, self.lasso_lifetime)
             number(lasso["_length"], 0, 2000)
@@ -693,19 +726,24 @@ class Meadow:
                     raise ValueError("lasso route crosses water")
                 remaining_length += self._distance(previous, destination)
                 previous = destination
-            if previous["x"] != self.lasso_anchor["x"] or previous["y"] != self.lasso_anchor["y"]:
+            if previous["x"] != lasso["anchorX"] or previous["y"] != lasso["anchorY"]:
                 raise ValueError("lasso route misses basket")
             expected_length = lasso["_length"] * (1 - lasso["_elapsed"] / lasso["_duration"])
             if abs(remaining_length - expected_length) > .001:
                 raise ValueError("inconsistent lasso progress")
         if len(set(lasso_rabbits)) != len(lasso_rabbits) or len(set(owners)) != len(owners):
             raise ValueError("duplicate lasso rabbit or owner")
+        if len(set(occupied_seats)) != len(occupied_seats):
+            raise ValueError("duplicate lasso seat")
         if {rabbit["id"] for rabbit in all_rabbits if rabbit["state"] == "roped"} != set(lasso_rabbits):
             raise ValueError("orphaned lasso")
         previous_result_time = -1
         for result in self.lasso_results:
-            if not isinstance(result, dict) or set(result) != {"id", "rabbitId", "outcome", "x", "y", "time"}:
+            if not isinstance(result, dict) or set(result) != {"id", "rabbitId", "seatId", "anchorX", "anchorY", "outcome", "x", "y", "time"}:
                 raise ValueError("invalid lasso result")
+            anchor = self._anchor_for_seat(result["seatId"])
+            if result["anchorX"] != anchor["x"] or result["anchorY"] != anchor["y"]:
+                raise ValueError("invalid result anchor")
             integer(result["id"])
             integer(result["rabbitId"])
             lasso_ids.append(result["id"])

@@ -21,6 +21,7 @@ router = APIRouter()
 LASSO_ACTIONS = {'lasso', 'pull', 'stop_pull', 'cancel_lasso'}
 LEASE_ACTIONS = {'pull', 'stop_pull'}
 LASSO_SUCCESS = {'lassoed', 'pulling', 'pull_stopped', 'lasso_cancelled'}
+PRESENCE_TTL = 20.0
 
 
 class MeadowService:
@@ -46,11 +47,15 @@ class MeadowService:
         self.ip_buckets = OrderedDict()
         self.lease_buckets = OrderedDict()
         self.global_bucket = [20.0, time.monotonic()]
+        # Only the eight seats are retained, never a growing visitor registry.
+        # Tokens/digests remain private and presence requires no SQLite writes.
+        self.seat_presence = {}
 
     async def start(self):
         try:
             self.model = await asyncio.to_thread(load_meadow, self.path)
             self.model.pause_lassos()
+            self._restore_seats()
             self.receipts = OrderedDict(
                 (receipt['requestId'], receipt) for receipt in self.model.receipts[-1000:]
             )
@@ -73,9 +78,80 @@ class MeadowService:
                 except Exception:
                     logger.exception('Shared meadow final checkpoint failed')
 
-    def _publish(self):
+    def _restore_seats(self):
+        """Keep a saved rope's seat reserved until its owner returns or it ends."""
+        self.seat_presence = {}
+        for lasso in self.model.lassos:
+            if lasso.get('seatId') is not None:
+                self.seat_presence[lasso['seatId']] = {
+                    'owner': lasso['_owner'], 'lastSeen': float('-inf'),
+                }
+        # A pre-seats save may have ropes at the original shared basket. Give
+        # those owners a reservation without moving their in-progress rope.
+        for lasso in self.model.lassos:
+            if self._seat_for(lasso['_owner']) is None:
+                available = next((seat['seatId'] for seat in Meadow.seat_anchors
+                                  if seat['seatId'] not in self.seat_presence), None)
+                if available is not None:
+                    self.seat_presence[available] = {
+                        'owner': lasso['_owner'], 'lastSeen': float('-inf'),
+                    }
+
+    def _seat_for(self, owner):
+        if owner is None:
+            return None
+        return next((seat_id for seat_id, presence in self.seat_presence.items()
+                     if presence['owner'] == owner), None)
+
+    def _seats_snapshot(self, now):
+        ropes = {item['_owner']: item for item in self.model.lassos}
+        public = []
+        for anchor in Meadow.seat_anchors:
+            presence = self.seat_presence.get(anchor['seatId'])
+            online = bool(presence and now - presence['lastSeen'] <= PRESENCE_TTL)
+            rope = ropes.get(presence['owner']) if presence else None
+            if not presence:
+                status = 'empty'
+            elif not online:
+                status = 'away'
+            elif rope:
+                status = 'pulling' if rope['_lease'] > 0 else 'roped'
+            else:
+                status = 'ready'
+            public.append({
+                'id': anchor['seatId'], 'x': anchor['x'], 'y': anchor['y'],
+                'occupied': presence is not None, 'online': online,
+                'lassoId': rope['id'] if rope else None, 'status': status,
+            })
+        return public
+
+    def _sync_presence(self, now, owner=None, publish=True):
+        """Refresh one visitor, reclaim idle seats, and publish shared changes."""
+        owners_before = {seat_id: presence['owner'] for seat_id, presence in self.seat_presence.items()}
+        for seat_id, presence in list(self.seat_presence.items()):
+            if (now - presence['lastSeen'] > PRESENCE_TTL
+                    and self.model.lasso_for(presence['owner']) is None):
+                del self.seat_presence[seat_id]
+        if owner is not None:
+            seat_id = self._seat_for(owner)
+            if seat_id is None:
+                seat_id = next((seat['seatId'] for seat in Meadow.seat_anchors
+                                if seat['seatId'] not in self.seat_presence), None)
+            if seat_id is not None:
+                self.seat_presence[seat_id] = {'owner': owner, 'lastSeen': now}
+        owners_after = {seat_id: presence['owner'] for seat_id, presence in self.seat_presence.items()}
+        changed = (owners_before != owners_after or self.cached is None
+                   or self._seats_snapshot(now) != self.cached.get('seats'))
+        if changed and publish:
+            self.revision += 1
+            self._publish(now)
+        return changed
+
+    def _publish(self, now=None):
+        seats = self._seats_snapshot(time.monotonic() if now is None else now)
         self.cached = {
             **self.model.snapshot(), 'epoch': self.epoch, 'revision': self.revision,
+            'seats': seats, 'onlineCount': sum(seat['online'] for seat in seats),
         }
 
     async def _save(self):
@@ -97,6 +173,7 @@ class MeadowService:
         rabbit never appears safely in the basket before its save has succeeded.
         Caller holds the service lock.
         """
+        self._sync_presence(now)
         if now < self.critical_retry_at:
             return
         if now - self.last_seen <= 15:
@@ -122,8 +199,9 @@ class MeadowService:
                     self.critical_retry_at = now + 5
                     logger.exception('Completed meadow event rolled back because its save failed')
                     return
+            self._sync_presence(now, publish=False)
             self.revision += 1
-            self._publish()
+            self._publish(now)
         if self.dirty and now - self.last_saved >= 15:
             try:
                 await self._save()
@@ -145,11 +223,13 @@ class MeadowService:
     def _state_for(self, owner):
         # Per-player control is private; the shared cached snapshot never
         # contains the token, its digest, or another visitor's identity.
-        return {**self.cached, 'myLassoId': self.model.lasso_for(owner) if owner else None}
+        return {**self.cached, 'myLassoId': self.model.lasso_for(owner) if owner else None,
+                'mySeatId': self._seat_for(owner)}
 
     async def state(self, owner=None):
         async with self.lock:
             self.last_seen = time.monotonic()
+            self._sync_presence(self.last_seen, owner)
             return self._state_for(owner)
 
     @staticmethod
@@ -183,6 +263,7 @@ class MeadowService:
         )
         async with self.lock:
             self.last_seen = time.monotonic()
+            self._sync_presence(self.last_seen, owner)
             previous = self.receipts.get(payload['requestId'])
             if previous:
                 if previous['signature'] != signature:
@@ -211,7 +292,12 @@ class MeadowService:
                     'stop_pull': (self.model.stop_lasso, 'lassoId'),
                     'cancel_lasso': (self.model.cancel_lasso, 'lassoId'),
                 }[action]
-                code = method(payload[identity], owner)
+                if action == 'lasso':
+                    seat_id = self._seat_for(owner)
+                    code = (method(payload[identity], owner, seat_id=seat_id)
+                            if seat_id is not None else 'meadow_full')
+                else:
+                    code = method(payload[identity], owner)
                 ok = code in LASSO_SUCCESS
 
             receipt = {

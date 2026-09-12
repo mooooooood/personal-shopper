@@ -131,7 +131,9 @@ class SharedMeadowTests(unittest.IsolatedAsyncioTestCase):
                 service = await self.wildlife_world(kind)
                 first = (await self.first.get('/api/meadow')).json()
                 second = (await self.second.get('/api/meadow')).json()
-                self.assertEqual(first, second)
+                first = (await self.first.get('/api/meadow')).json()
+                self.assertEqual({k:v for k,v in first.items() if k not in ('mySeatId','myLassoId')},
+                                 {k:v for k,v in second.items() if k not in ('mySeatId','myLassoId')})
                 self.assertEqual(first['encounter']['kind'], kind)
                 self.assertEqual(first['encounter']['phase'], 'warning')
                 target_id = first['encounter']['targetId']
@@ -139,7 +141,8 @@ class SharedMeadowTests(unittest.IsolatedAsyncioTestCase):
                 self.advance_until_leaving(service)
                 first = (await self.first.get('/api/meadow')).json()
                 second = (await self.second.get('/api/meadow')).json()
-                self.assertEqual(first, second)
+                self.assertEqual({k:v for k,v in first.items() if k not in ('mySeatId','myLassoId')},
+                                 {k:v for k,v in second.items() if k not in ('mySeatId','myLassoId')})
                 self.assertEqual(first['raidedCount'], 1)
                 self.assertEqual(first['totalCount'], 11)
                 self.assertNotIn(target_id, [rabbit['id'] for rabbit in first['rabbits'] + first['basket']])
@@ -416,7 +419,8 @@ class SharedMeadowTests(unittest.IsolatedAsyncioTestCase):
     async def test_failed_capture_checkpoint_rolls_back_and_retries_without_false_success(self):
         service = await self.controlled_world()
         rabbit = service.model.rabbits[0]
-        rabbit.update(x=service.model.lasso_anchor['x'] - 10, y=service.model.lasso_anchor['y'])
+        anchor = service.model.seat_anchors[0]
+        rabbit.update(x=anchor['x'] - 10, y=anchor['y'])
         service._publish()
         roped = (await self.post('lasso', rabbitId=rabbit['id'])).json()
         lasso_id = roped['state']['myLassoId']

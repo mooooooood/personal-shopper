@@ -265,7 +265,7 @@ class LassoPersistenceTests(unittest.TestCase):
             self.assertEqual(restored.pairs, original.pairs)
             self.assertEqual(restored.lassos, [])
             self.assertEqual(restored.lasso_results, [])
-            self.assertEqual(restored.export_state()['version'], 3)
+            self.assertEqual(restored.export_state()['version'], Meadow.schema_version)
             if version == 2:
                 self.assertEqual(restored.encounter, original.encounter)
                 self.assertEqual(restored.rabbits, original.rabbits)
@@ -279,7 +279,7 @@ class LassoPersistenceTests(unittest.TestCase):
         world.start_lasso(1, OWNER)
         world.pull_lasso(world.lasso_for(OWNER), OWNER)
         snapshot = world.snapshot()
-        self.assertEqual(set(snapshot['lassos'][0]), {'id', 'rabbitId', 'anchorX', 'anchorY', 'remaining', 'progress', 'pulling'})
+        self.assertEqual(set(snapshot['lassos'][0]), {'id', 'rabbitId', 'seatId', 'anchorX', 'anchorY', 'remaining', 'progress', 'pulling'})
         self.assertNotIn(OWNER, json.dumps(snapshot))
         snapshot['lassos'][0]['rabbitId'] = 999
         self.assertEqual(world.lassos[0]['rabbitId'], 1)

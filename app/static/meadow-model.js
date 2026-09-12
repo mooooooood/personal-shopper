@@ -1,5 +1,6 @@
 // The server owns rabbit coats and wildlife events as well as movement.
 // This module only smooths received snapshots; it never rolls a random event.
+import { validSeats } from './meadow-seats.js?v=meadow8';
 const coats = new Set(['white','cream','caramel','chocolate','silver','charcoal','ginger','spotted']);
 function validCoat(rabbit) { return rabbit.coat === undefined || coats.has(rabbit.coat); }
 const identity=value=>Number.isSafeInteger(value)&&value>0;
@@ -96,6 +97,7 @@ export function createSnapshotBuffer(duration = 1000) {
         Number.isSafeInteger(rabbit.id) && Number.isFinite(rabbit.x) && Number.isFinite(rabbit.y) && validCoat(rabbit))
       || !validEncounter(state.encounter)
       || !validLassos(state)
+      || !validSeats(state)
       || (state.raidedCount !== undefined && (!Number.isSafeInteger(state.raidedCount) || state.raidedCount < 0))) {
       throw new Error('Invalid meadow snapshot');
     }

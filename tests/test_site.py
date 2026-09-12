@@ -58,7 +58,7 @@ class SiteTests(unittest.TestCase):
         page = self.client.get('/').text
         self.assertIn('id="meadow-canvas"', page)
         self.assertIn('tabindex="0"', page)
-        self.assertIn('aria-describedby="meadow-help"', page)
+        self.assertIn('aria-describedby="meadow-help seat-status"', page)
         for asset, media_type in [('meadow.css', 'text/css'), ('meadow.js', 'javascript'), ('meadow-model.js', 'javascript')]:
             response = self.client.get('/static/' + asset)
             self.assertEqual(response.status_code, 200, asset)

@@ -1,6 +1,7 @@
-import { drawRabbit } from './rabbit-art.js?v=meadow6';
-import { createLassoPuller } from './lasso-pull.js?v=meadow6';
-import { createSeededRandom, createSnapshotBuffer, toWorldPoint } from './meadow-model.js?v=meadow6';
+import { drawRabbit } from './rabbit-art.js?v=meadow8';
+import { createLassoPuller } from './lasso-pull.js?v=meadow8';
+import { createSeededRandom, createSnapshotBuffer, toWorldPoint } from './meadow-model.js?v=meadow8';
+import { seatName, seatPalette, seatActivity, recentSeatResult, seatResultMessage } from './meadow-seats.js?v=meadow8';
 
 const byId = id => document.getElementById(id);
 
@@ -55,7 +56,8 @@ function startMeadow() {
   let frame = 0, lastTime = 0, particles = [], frozen = null;
   let cursor = {x:500, y:300, visible:false}, keyboardRing = false;
   let connected = false, pending = false, polling = false, pollTimer = 0, failures = 0;
-  let previousNumbers = '', rendered = null;
+  let previousNumbers = '', rendered = null, seatFeed = null;
+  const seatRows = new Map();
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   let paused = reducedMotion.matches;
   const background = document.createElement('canvas');
@@ -78,7 +80,7 @@ function startMeadow() {
   function controls() {
     const blocked = !connected || paused || pending;
     byId('tool-carrot').disabled = blocked;
-    byId('tool-net').disabled = blocked;
+    byId('tool-net').disabled = blocked || (buffer.latest?.seats && buffer.latest.mySeatId==null);
     byId('release-rabbit').disabled = blocked || !buffer.latest?.basket.length;
     byId('reset-meadow').disabled = polling || pending;
     byId('pause-meadow').disabled = !buffer.latest;
@@ -98,11 +100,16 @@ function startMeadow() {
     const label = ok ? 'Shared meadow · connected' : 'Reconnecting…';
     if (indicator.textContent !== label) indicator.textContent = label;
     indicator.dataset.state = ok ? 'connected' : 'offline';
+    if(!ok&&buffer.latest?.seats){
+      byId('online-status').textContent='Players · reconnecting';
+      byId('seat-status').textContent='Checking your seat…';
+    }
     controls();
     schedule();
   }
   function counters(state) {
     if (!state) return;
+    presence(state);
     const own=ownLasso(state);
     if(own){
       const percent=Math.round(own.progress*100);
@@ -129,6 +136,29 @@ function startMeadow() {
       indicator.dataset.kind = encounter?.kind || 'calm';
     }
   }
+  function presence(state) {
+    if(!state.seats)return;
+    const text=(node,value)=>{if(node.textContent!==value)node.textContent=value;};
+    if(connected){
+      text(byId('online-status'),`${state.onlineCount} / 8 seats online`);
+      text(byId('seat-status'),state.mySeatId==null?'Watching · joining when a seat opens':`You are at ${seatName(state.mySeatId).toLowerCase()}`);
+    }
+    for(const seat of state.seats){
+      let row=seatRows.get(seat.id);
+      if(!row){
+        const node=document.createElement('li'),name=document.createElement('strong'),activity=document.createElement('span');
+        node.append(name,activity);node.style.setProperty('--seat-color',seatPalette(seat.id)[0]);
+        byId('seat-list').append(node);row={node,name,activity};seatRows.set(seat.id,row);
+      }
+      const mine=seat.id===state.mySeatId;
+      row.node.dataset.own=String(mine);row.node.dataset.state=seat.status;
+      text(row.name,`${seatName(seat.id)}${mine?' · You':''}`);
+      text(row.activity,seatActivity(seat,state));
+    }
+    const show=seatFeed&&state.time-seatFeed.time<8&&state.time>=seatFeed.time;
+    byId('seat-feed').hidden=!show;
+    if(show)text(byId('seat-feed'),seatResultMessage(seatFeed));
+  }
   function emit(item, kind = 'heart', count = 3) {
     const p = projected(item);
     for (let i = 0; i < count; i++) particles.push({x:p.x + (i-(count-1)/2)*14, y:p.y-25, age:-i*0.1, kind});
@@ -141,6 +171,13 @@ function startMeadow() {
     const previousLasso=ownLasso(old);
     puller.sync(state.myLassoId??null);
     const outcome=previousLasso && (state.lassoResults||[]).find(result=>result.id===previousLasso.id);
+    if(old?.epoch!==state.epoch)seatFeed=null;
+    else {
+      const priorResults=new Set((old.lassoResults||[]).map(result=>result.id));
+      const sharedResults=(state.lassoResults||[]).filter(result=>result.seatId!=null
+        &&result.seatId!==state.mySeatId&&!priorResults.has(result.id));
+      if(sharedResults.length)seatFeed=sharedResults.at(-1);
+    }
     if (changed && old?.epoch === state.epoch && !paused && !aboutDialog?.open && !helpDialog?.open) {
       const oldIds = new Set([...old.rabbits, ...old.basket].map(rabbit => rabbit.id));
       const babies = state.rabbits.filter(rabbit => !oldIds.has(rabbit.id) && !rabbit.adult);
@@ -161,6 +198,8 @@ function startMeadow() {
         escaped:'The rope went slack. Your rabbit is free again.',
         cancelled:'You let go. The rabbit is back on the grass.'}[outcome.outcome]);
     }
+    if(state.mySeatId!=null&&old&&old.mySeatId!==state.mySeatId&&!paused)
+      status(`${seatName(state.mySeatId)} is yours. Your rope will bring rabbits back here.`);
     if (!old) {
       byId('meadow-loading').hidden = true;
       if (paused || !state.encounter) status(paused ? 'Your view is paused for reduced motion. Play joins the live meadow.'
@@ -231,6 +270,8 @@ function startMeadow() {
       accept(result.state);
       const messages = {
         lassoed:'A loop around your rabbit! Hold to pull it toward the basket.',
+        meadow_full:'All eight seats are taken. Watch the others; you will join when a seat opens.',
+        seat_busy:'This seat already has a rope. Sync the meadow before casting again.',
         lasso_cancelled:'You let go. The rabbit is free again.',
         rabbit_roped:'Another visitor already has this rabbit on a rope.',
         player_busy:'Bring your current rabbit home or let go before casting again.',
@@ -256,6 +297,9 @@ function startMeadow() {
   }
   function chooseTool(next) {
     if (next !== 'watch' && (!connected || paused || pending)) return;
+    if(next==='net'&&buffer.latest?.seats&&buffer.latest.mySeatId==null){
+      status('All eight seats are taken. You can watch and leave carrots while a seat opens.');return;
+    }
     tool = next;
     puller.stop();
     for (const name of ['watch','carrot','net']) byId(`tool-${name}`).setAttribute('aria-pressed', String(name === tool));
@@ -271,6 +315,9 @@ function startMeadow() {
   }
   function useTool(position) {
     if (!connected || paused || pending || !rendered) return;
+    if(tool==='net'&&buffer.latest?.seats&&buffer.latest.mySeatId==null){
+      status('You are watching for now. A free seat will be assigned automatically.');return;
+    }
     if (tool === 'carrot') { action({action:'carrot', ...toWorldPoint(position.x,position.y,W,H)}); return; }
     if(tool==='net'&&ownLasso(buffer.latest)){status('Your rabbit is on the rope. Hold to pull, or choose Let go.');return;}
     const radius = Math.max(40,28*W/canvas.getBoundingClientRect().width);
@@ -341,22 +388,30 @@ function startMeadow() {
     rendered=state;
     counters(state);
     for(const carrot of state.carrots){const p=projected(carrot);drawCarrot(ctx,p.x,p.y,1);}
-    const home=projected({x:500,y:380});
+    const legacyHome=projected({x:500,y:380});
+    const seatSize=Math.max(.52,Math.min(.9,W/580,H/560));
     for(const rope of state.lassos||[]){
       const rabbit=state.rabbits.find(rabbit=>rabbit.id===rope.rabbitId);
+      const home=projected({x:rope.anchorX,y:rope.anchorY});
       if(rabbit)drawRope(ctx,home,projected(rabbit),rope,state.time,rope.id===state.myLassoId);
     }
     for(const rabbit of [...state.rabbits].sort((a,z)=>a.y-z.y))drawRabbit(ctx,projected(rabbit),state.time);
     for(const rope of state.lassos||[]){
       const rabbit=state.rabbits.find(rabbit=>rabbit.id===rope.rabbitId);
-      if(rabbit){const p=projected(rabbit);drawRopeLoop(ctx,p.x,p.y,rope.id===state.myLassoId,rope.pulling);}
+      if(rabbit){const p=projected(rabbit);drawRopeLoop(ctx,p.x,p.y,rope.id===state.myLassoId,rope.pulling,rope.seatId);}
     }
-    drawBasket(ctx,home.x,home.y,state.basket.length,Boolean(state.lassos?.length));
+    for(const seat of state.seats||[]){
+      const rope=(state.lassos||[]).find(item=>item.id===seat.lassoId);
+      drawSeat(ctx,projected(seat),rope,seat.id===state.mySeatId,state.time,seatSize,recentSeatResult(state,seat.id));
+    }
+    if(!state.seats||(state.lassos||[]).some(rope=>rope.seatId==null))
+      drawBasket(ctx,legacyHome.x,legacyHome.y,state.basket.length,Boolean(state.lassos?.length));
     for(const result of state.lassoResults||[]){
       const age=state.time-result.time;
       if(result.outcome==='stolen'&&age>=0&&age<1.5){
+        const home=projected({x:result.anchorX??500,y:result.anchorY??380});
         const end=projected(result);ctx.save();ctx.globalAlpha=1-age/1.5;
-        drawRope(ctx,home,{...end,y:end.y+age*12},{remaining:0,pulling:false},state.time,true);ctx.restore();
+        drawRope(ctx,home,{...end,y:end.y+age*12},{...result,remaining:0,pulling:false},state.time,result.seatId===state.mySeatId);ctx.restore();
       }
     }
     if(state.encounter)drawWildlife(ctx,projected(state.encounter),state.time);
@@ -491,22 +546,68 @@ function drawLasso(c,x,y) {
   ellipse(c,5,12,3,2,'#98723e');c.restore();
 }
 function drawRope(c,start,rabbit,rope,time,own) {
+  const colors=rope.seatId!=null?seatPalette(rope.seatId):own?['#805f37','#e4c694']:['#62786c','#c1d4b9'];
   const cast=Math.max(0,Math.min(1,(25-rope.remaining)/.45));
   const end={x:start.x+(rabbit.x-start.x)*cast,y:start.y+(rabbit.y-19-start.y)*cast};
   const slack=rope.pulling?5:24;
   c.save();c.beginPath();c.moveTo(start.x,start.y-13);
   c.quadraticCurveTo((start.x+end.x)/2+Math.sin(time*7)*(rope.pulling?1.4:.3),
     (start.y+end.y)/2+slack,end.x,end.y);
-  c.lineCap='round';c.strokeStyle=own?'#805f37':'#62786c';c.lineWidth=3.4;c.stroke();
-  c.strokeStyle=own?'#e4c694':'#c1d4b9';c.lineWidth=1.7;c.stroke();c.restore();
+  c.lineCap='round';c.strokeStyle=colors[0];c.lineWidth=own?4.2:3.4;c.stroke();
+  c.strokeStyle=colors[1];c.lineWidth=1.5;c.stroke();c.restore();
 }
-function drawRopeLoop(c,x,y,own,pulling) {
+function drawRopeLoop(c,x,y,own,pulling,seatId) {
+  const colors=seatId!=null?seatPalette(seatId):own?['#a17740','#e6cfa6']:['#6c8c77','#c4d9c0'];
   c.save();c.beginPath();c.ellipse(x-3,y-18,25,pulling?12:17,-.08,0,Math.PI);
-  c.strokeStyle=own?'#a17740':'#6c8c77';c.lineWidth=3;c.stroke();
-  c.strokeStyle=own?'#e6cfa6':'#c4d9c0';c.lineWidth=1.2;c.stroke();
-  ellipse(c,x+20,y-15,3,2,own?'#8c6638':'#5f7d66');c.restore();
+  c.strokeStyle=colors[0];c.lineWidth=3;c.stroke();
+  c.strokeStyle=colors[1];c.lineWidth=1.2;c.stroke();
+  ellipse(c,x+20,y-15,3,2,colors[0]);
+  if(seatId!=null){
+    ellipse(c,x+30,y-28,9,9,colors[0]);c.fillStyle='#fffef4';c.font='bold 10px Arial, sans-serif';c.textAlign='center';c.fillText(String(seatId),x+30,y-24.5);
+  }
+  c.restore();
 }
-function drawBasket(c,x,y,count,active) {
+function drawSeat(c,seat,rope,own,time,size,result) {
+  const colors=seatPalette(seat.id),pulling=rope?.pulling&&seat.online;
+  const tug=pulling?Math.sin(time*9+seat.id)*2:0;
+  c.save();c.translate(seat.x,seat.y);c.scale(size,size);
+  ellipse(c,0,9,43,16,seat.occupied?'#718b5633':'#9aad7926');
+  if(own){
+    c.beginPath();c.ellipse(0,7,49,20,0,0,Math.PI*2);c.strokeStyle=colors[0];c.lineWidth=2;c.stroke();
+    c.beginPath();c.ellipse(0,7,53,23,0,0,Math.PI*2);c.strokeStyle='#fffbe6';c.lineWidth=1;c.stroke();
+  }
+  if(seat.occupied){
+    c.save();if(!seat.online)c.globalAlpha=.55;
+    c.translate(seat.id<=4? -tug:tug,0);
+    // A little cowboy behind the basket leans and draws back both hands.
+    rounded(c,-12,-28,24,22,7,colors[0]);
+    ellipse(c,0,-34,8,9,'#e4bc8e');
+    rounded(c,-9,-47,18,10,4,colors[0]);
+    ellipse(c,0,-39,17,3,colors[0]);
+    line(c,[[-10,-22],[-21,-15-tug],[-8,-10-tug]],colors[0],5);
+    line(c,[[10,-22],[21,-15-tug],[8,-10-tug]],colors[0],5);
+    ellipse(c,-8,-10-tug,3,3,'#e4bc8e');ellipse(c,8,-10-tug,3,3,'#e4bc8e');
+    c.restore();
+  }
+  c.save();c.scale(.7,.7);
+  if(!seat.occupied)c.globalAlpha=.45;
+  drawBasket(c,0,7,String(seat.id).padStart(2,'0'),Boolean(rope),'');c.restore();
+  ellipse(c,30,-22,5,5,'#fcfff1');ellipse(c,30,-22,3,3,seat.online?'#6d9756':seat.occupied?'#b89c67':'#b4bea5');
+  if(rope){
+    c.beginPath();c.ellipse(0,8,46,18,0,-Math.PI/2,-Math.PI/2+Math.PI*2*rope.progress);
+    c.strokeStyle=colors[0];c.lineWidth=3;c.stroke();
+  }
+  c.restore();
+  const activity=result&&!rope?{caught:'HOME!',stolen:'SNATCHED',escaped:'FREE',cancelled:'LET GO'}[result.outcome]
+    :!seat.occupied?'OPEN':!seat.online?'AWAY':rope?`${Math.round(rope.progress*100)}%`:'READY';
+  const label=`${own?'YOU':String(seat.id).padStart(2,'0')} · ${activity}`;
+  c.save();c.font='bold 10px Arial, sans-serif';c.textAlign='center';
+  const width=c.measureText(label).width+14,y=seat.y+size*24;
+  rounded(c,seat.x-width/2,y,width,17,8,own?'#fffbeb':'#f7fbe4df');
+  c.fillStyle=seat.occupied?colors[0]:'#849370';c.fillText(label,seat.x,y+11.5);
+  c.restore();
+}
+function drawBasket(c,x,y,count,active,label='SHARED BASKET') {
   c.save();c.translate(x,y);
   ellipse(c,0,8,43,12,'#8fa36d44');
   if(active){c.beginPath();c.ellipse(0,4,51,21,0,0,Math.PI*2);c.setLineDash([4,5]);c.strokeStyle='#f5f1ce';c.lineWidth=2;c.stroke();c.setLineDash([]);}
@@ -517,7 +618,7 @@ function drawBasket(c,x,y,count,active) {
   for(let col=-24;col<=24;col+=8)line(c,[[col,-13],[col*.83,9]],'#d7b781',1.1);
   c.beginPath();c.ellipse(0,-15,34,13,0,0,Math.PI);c.strokeStyle='#ddba7d';c.lineWidth=4;c.stroke();
   rounded(c,-15,-7,30,17,4,'#f4e8c9');c.fillStyle='#725735';c.font='11px Georgia, serif';c.textAlign='center';c.fillText(String(count),0,5);
-  c.font='8px Arial, sans-serif';c.fillStyle='#657747';c.fillText('SHARED BASKET',0,26);
+  if(label){c.font='8px Arial, sans-serif';c.fillStyle='#657747';c.fillText(label,0,26);}
   c.restore();
 }
 function drawButterfly(c, x, y, time, color) {
@@ -597,12 +698,14 @@ function paintLandscape(c, W, H) {
       flower(c, x, y, (3 + random() * 2.5) * size, i % 3 ? '#fff9dc' : '#e8c2be', '#d0ac58');
     }
   }
-  // Keep the little sign above the bottom controls, with naturally sized type.
-  const signX = Math.max(76 * size, Math.min(W - 76 * size, X(140))), signY = Y(410);
+  // Keep decoration away from the eight catching seats and small-screen HUD.
+  if(W>700){
+  const signX = X(500), signY = Y(115);
   line(c, [[signX, signY + 10 * size], [signX, signY + 44 * size]], '#b29a6d', 5 * size);
   rounded(c, signX - 69 * size, signY - 13 * size, 140 * size, 32 * size, 4 * size, '#c0af7e');
   rounded(c, signX - 70 * size, signY - 16 * size, 140 * size, 32 * size, 4 * size, '#f0e7c4');
   c.font = `italic ${13 * size}px Georgia, serif`; c.textAlign = 'center'; c.fillStyle = '#66774e';
   c.fillText('a little room to grow', signX, signY + 5 * size);
+  }
   c.restore();
 }
