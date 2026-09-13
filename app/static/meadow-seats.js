@@ -15,15 +15,16 @@ export function seatActivity(seat,state) {
   if(!seat.occupied)return 'Open seat';
   if(!seat.online)return 'Away · rope reserved';
   const rope=(state.lassos||[]).find(item=>item.id===seat.lassoId);
+  if(rope?.phase==='casting')return 'Casting · loop in flight';
   if(rope)return `${rope.pulling?'Pulling':'Rope paused'} · ${Math.round(rope.progress*100)}%`;
   const result=recentSeatResult(state,seat.id);
-  return result?{caught:'Rabbit home safe',stolen:'Rabbit snatched away',escaped:'Rabbit slipped free',cancelled:'Rabbit let go'}[result.outcome]
+  return result?{caught:'Rabbit home safe',stolen:'Rabbit snatched away',escaped:'Rabbit slipped free',cancelled:'Rabbit let go',missed:'Loop missed the rabbit'}[result.outcome]
     :'Ready to cast';
 }
 export function seatResultMessage(result) {
   if(result?.seatId==null)return '';
   const verb={caught:'brought a rabbit home.',stolen:'lost a rabbit to wildlife.',
-    escaped:'had a rabbit slip free.',cancelled:'let a rabbit go.'}[result.outcome];
+    escaped:'had a rabbit slip free.',cancelled:'let a rabbit go.',missed:'cast a loop that missed.'}[result.outcome];
   return verb?`${seatName(result.seatId)} ${verb}`:'';
 }
 export function validSeats(state) {
@@ -40,7 +41,7 @@ export function validSeats(state) {
     if(seat.lassoId!=null&&(!rope||ropeIds.has(seat.lassoId)
       ||(rope.seatId!=null&&rope.seatId!==seat.id)))return false;
     if(rope)ropeIds.add(rope.id);
-    const expected=!seat.occupied?'empty':!seat.online?'away':rope?(rope.pulling?'pulling':'roped'):'ready';
+    const expected=!seat.occupied?'empty':!seat.online?'away':rope?(rope.phase==='casting'?'casting':rope.pulling?'pulling':'roped'):'ready';
     if(seat.status!==expected||(!seat.occupied&&(seat.online||rope)))return false;
   }
   if(!Number.isInteger(state.onlineCount)||state.onlineCount!==state.seats.filter(seat=>seat.online).length)return false;

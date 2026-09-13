@@ -115,7 +115,7 @@ class MeadowService:
             elif not online:
                 status = 'away'
             elif rope:
-                status = 'pulling' if rope['_lease'] > 0 else 'roped'
+                status = 'casting' if rope['phase'] == 'casting' else 'pulling' if rope['_lease'] > 1e-9 else 'roped'
             else:
                 status = 'ready'
             public.append({
@@ -224,7 +224,11 @@ class MeadowService:
         # Per-player control is private; the shared cached snapshot never
         # contains the token, its digest, or another visitor's identity.
         return {**self.cached, 'myLassoId': self.model.lasso_for(owner) if owner else None,
-                'mySeatId': self._seat_for(owner)}
+                'mySeatId': self._seat_for(owner),
+                'myLassoResults': [{**{key: value for key, value in result.items() if not key.startswith('_')},
+                                    'eventKey': f'{self.model.world_id}:{result["id"]}'}
+                                   for result in self.model.lasso_results
+                                   if owner and result['_owner'] == owner]}
 
     async def state(self, owner=None):
         async with self.lock:
@@ -287,14 +291,14 @@ class MeadowService:
                 code, ok = ('released', True) if entity else ('basket_empty', False)
             else:
                 method, identity = {
-                    'lasso': (self.model.start_lasso, 'rabbitId'),
+                    'lasso': (self.model.cast_lasso, 'rabbitId'),
                     'pull': (self.model.pull_lasso, 'lassoId'),
                     'stop_pull': (self.model.stop_lasso, 'lassoId'),
                     'cancel_lasso': (self.model.cancel_lasso, 'lassoId'),
                 }[action]
                 if action == 'lasso':
                     seat_id = self._seat_for(owner)
-                    code = (method(payload[identity], owner, seat_id=seat_id)
+                    code = (method(payload[identity], owner, seat_id=seat_id, x=payload.get('x'), y=payload.get('y'))
                             if seat_id is not None else 'meadow_full')
                 else:
                     code = method(payload[identity], owner)
@@ -382,7 +386,10 @@ def valid_payload(payload):
               'pull': {'lassoId'}, 'stop_pull': {'lassoId'}, 'cancel_lasso': {'lassoId'}}
     if not isinstance(action, str) or action not in fields:
         return False
-    if set(payload) != fields[action] | {'action', 'requestId'}:
+    expected = fields[action] | {'action', 'requestId'}
+    if action == 'lasso' and ('x' in payload or 'y' in payload):
+        expected |= {'x', 'y'}
+    if set(payload) != expected:
         return False
     request_id = payload['requestId']
     try:
@@ -391,7 +398,7 @@ def valid_payload(payload):
         UUID(request_id)
     except (ValueError, AttributeError):
         return False
-    if action == 'carrot':
+    if action == 'carrot' or (action == 'lasso' and 'x' in payload):
         for field, maximum in [('x', 1000), ('y', 600)]:
             value = payload[field]
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= maximum or not math.isfinite(value):

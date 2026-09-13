@@ -67,6 +67,8 @@ class SharedMeadowTests(unittest.IsolatedAsyncioTestCase):
         service = main.app.state.meadow
         service.ip_buckets.clear()
         service.global_bucket[0] = 20
+        target = next(rabbit for rabbit in service.model.rabbits if rabbit['id'] == rabbit_id)
+        target['_speed'] = 0  # Aim is stable for tests of settlement/persistence.
         response = await self.post('lasso', rabbitId=rabbit_id)
         self.assertEqual(response.json()['code'], 'lassoed')
         lasso_id = response.json()['state']['myLassoId']
@@ -84,6 +86,15 @@ class SharedMeadowTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn(rabbit_id, [rabbit['id'] for rabbit in state['basket']])
                 return state
         self.fail('Rabbit did not reach the basket through timed pulling')
+
+    def land_cast(self, service, lasso_id):
+        """Finish the real flight before tests that specifically exercise pulling."""
+        rope = next(item for item in service.model.lassos if item['id'] == lasso_id)
+        target = next(rabbit for rabbit in service.model.rabbits if rabbit['id'] == rope['rabbitId'])
+        target['_speed'] = 0
+        while rope['phase'] == 'casting':
+            self.publish_steps(service)
+        self.assertEqual(rope['phase'], 'reeling')
 
     @staticmethod
     def publish_steps(service, count=1):
@@ -348,6 +359,7 @@ class SharedMeadowTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(service.model.time, 0)
             self.assertEqual(service.model.basket, [])
             save.assert_not_called()
+        self.land_cast(service, lasso_id)
         self.publish_steps(service, 6)
         progressed = service.model.snapshot()['lassos'][0]['progress']
         self.assertGreater(progressed, 0)
@@ -365,6 +377,7 @@ class SharedMeadowTests(unittest.IsolatedAsyncioTestCase):
         start_request, pull_request = str(uuid4()), str(uuid4())
         roped = (await self.post('lasso', rabbitId=1, request_id=start_request)).json()
         lasso_id = roped['state']['myLassoId']
+        self.land_cast(service, lasso_id)
         await self.post('pull', lassoId=lasso_id, request_id=pull_request)
         self.publish_steps(service, 6)
         progress = service.model.snapshot()['lassos'][0]['progress']
@@ -405,10 +418,37 @@ class SharedMeadowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(late_pull.json()['code'], 'lasso_gone')
         self.assertEqual(service.model.basket, [])
 
+    async def test_fixed_aim_flight_is_public_and_missed_result_is_durable(self):
+        service = await self.controlled_world()
+        rabbit = service.model.rabbits[0]
+        rabbit.update(x=250, y=380, _speed=100)
+        service.model._move_toward(rabbit, {'x':500,'y':380})
+        service._publish()
+        cast = await self.post('lasso', rabbitId=1, x=250, y=380)
+        self.assertEqual(cast.json()['code'], 'lassoed')
+        rope = cast.json()['state']['lassos'][0]
+        self.assertEqual(rope['phase'], 'casting')
+        self.assertEqual((rope['castX'], rope['castY']), (250, 380))
+        self.assertEqual(cast.json()['state']['seats'][0]['status'], 'casting')
+        observer = (await self.second.get('/api/meadow')).json()
+        self.assertEqual(observer['lassos'], cast.json()['state']['lassos'])
+        for _ in range(12):
+            await service._tick(.1, time.monotonic())
+        state = (await self.first.get('/api/meadow')).json()
+        self.assertEqual(state['lassoResults'][-1]['outcome'], 'missed')
+        self.assertEqual(state['myLassoResults'][-1]['outcome'], 'missed')
+        self.assertEqual(state['basket'], [])
+        self.assertIn(1, [item['id'] for item in state['rabbits']])
+        self.assertEqual((await self.second.get('/api/meadow')).json()['myLassoResults'], [])
+        self.assertEqual(load_meadow(self.path).lasso_results[-1]['outcome'], 'missed')
+        self.assertNotIn('_owner', json.dumps(state))
+
     async def test_completed_capture_is_durable_before_any_poll_sees_it(self):
         service = await self.controlled_world()
         completed = await self.complete_lasso(1)
         self.assertEqual(completed['lassoResults'][-1]['outcome'], 'caught')
+        self.assertEqual(completed['myLassoResults'][-1]['coat'], completed['basket'][0]['coat'])
+        self.assertEqual((await self.second.get('/api/meadow')).json()['myLassoResults'], [])
         self.assertEqual([rabbit['id'] for rabbit in completed['basket']], [1])
         persisted = load_meadow(self.path)
         self.assertEqual([rabbit['id'] for rabbit in persisted.basket], [1])
@@ -424,6 +464,7 @@ class SharedMeadowTests(unittest.IsolatedAsyncioTestCase):
         service._publish()
         roped = (await self.post('lasso', rabbitId=rabbit['id'])).json()
         lasso_id = roped['state']['myLassoId']
+        self.land_cast(service, lasso_id)
         for step in range(44):
             if step % 6 == 0:
                 service.ip_buckets.clear()

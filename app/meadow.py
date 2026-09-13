@@ -10,6 +10,7 @@ import math
 from pathlib import Path
 import random
 import sqlite3
+from uuid import UUID, uuid4
 
 
 class Meadow:
@@ -19,7 +20,7 @@ class Meadow:
     nesting_duration = 2.8
     margin = 28
     pond = {"x": 825, "y": 135, "rx": 114, "ry": 72}
-    schema_version = 4
+    schema_version = 5
     coats = ("white", "cream", "caramel", "chocolate", "silver", "charcoal", "ginger", "spotted")
     lasso_anchor = {"x": 500, "y": 380}
     seat_anchors = [
@@ -34,6 +35,7 @@ class Meadow:
     ]
     lasso_lifetime = 25
     lasso_lease = 1.2
+    lasso_hit_radius = 48
 
     def __init__(self, seed=None, *, initial_count=12, max_rabbits=60):
         if type(max_rabbits) is not int or not 1 <= max_rabbits <= 60:
@@ -41,6 +43,7 @@ class Meadow:
         if type(initial_count) is not int or not 0 <= initial_count <= max_rabbits:
             raise ValueError("initial_count exceeds meadow capacity")
         self._random = random.Random(seed)
+        self.world_id = str(uuid4())
         self.max_rabbits = max_rabbits
         self.rabbits, self.basket, self.carrots, self.pairs = [], [], [], []
         self.lassos, self.lasso_results = [], []
@@ -412,35 +415,67 @@ class Meadow:
         seat = cls.seat_anchors[seat_id - 1]
         return {"x": seat["x"], "y": seat["y"]}
 
-    def start_lasso(self, rabbit_id, owner, seat_id=None):
-        """Reserve a rabbit; a rope alone never moves it into the basket."""
+    def _lasso_target(self, rabbit_id, owner, seat_id):
+        """Validate reservation without changing a moving or nesting rabbit."""
         if not self._valid_owner(owner):
             raise ValueError("invalid lasso owner")
         anchor = self._anchor_for_seat(seat_id)
         rabbit = next((item for item in self.rabbits if type(rabbit_id) is int and item["id"] == rabbit_id), None)
         if rabbit is None:
-            return "rabbit_gone"
+            return None, anchor, "rabbit_gone"
         if self.lasso_for(owner) is not None:
-            return "player_busy"
+            return None, anchor, "player_busy"
         if any(item["rabbitId"] == rabbit_id for item in self.lassos):
-            return "rabbit_roped"
+            return None, anchor, "rabbit_roped"
         if seat_id is not None and any(item["seatId"] == seat_id for item in self.lassos):
-            return "seat_busy"
+            return None, anchor, "seat_busy"
         if len(self.lassos) >= 8:
-            return "lasso_limit"
+            return None, anchor, "lasso_limit"
+        return rabbit, anchor, None
+
+    def _hook_lasso(self, lasso, rabbit):
         pair = next((item for item in self.pairs if item["id"] == rabbit["pairId"]), None)
         if pair is not None:
             self._end_pair(pair, interrupted=True)
         self._settle(rabbit)
         rabbit["state"] = "roped"
-        path = self._route_to(rabbit, anchor)
+        path = self._route_to(rabbit, {"x": lasso["anchorX"], "y": lasso["anchorY"]})
         length = sum(self._distance(first, second) for first, second in zip([rabbit, *path], path))
-        self.lassos.append({"id": self._next_lasso_id, "rabbitId": rabbit_id,
-                            "seatId": seat_id, "anchorX": anchor["x"], "anchorY": anchor["y"],
-                            "remaining": self.lasso_lifetime, "_owner": owner,
-                            "_path": path, "_length": length, "_duration": max(4.5, length / 75),
-                            "_elapsed": 0.0, "_lease": 0.0})
+        lasso.update(phase="reeling", castElapsed=lasso["castDuration"], _path=path, _length=length,
+                     _duration=max(4.5, length / 75), _elapsed=0.0)
+        rabbit["moving"] = lasso["_lease"] > 1e-9 and bool(path)
+
+    def _new_lasso(self, rabbit, owner, seat_id, anchor, aim, cast_duration):
+        lasso = {"id": self._next_lasso_id, "rabbitId": rabbit["id"],
+                 "seatId": seat_id, "anchorX": anchor["x"], "anchorY": anchor["y"],
+                 "phase": "casting", "castX": aim["x"], "castY": aim["y"],
+                 "castDuration": cast_duration, "castElapsed": 0.0,
+                 "remaining": self.lasso_lifetime, "_owner": owner,
+                 "_path": [], "_length": 0.0, "_duration": 4.5,
+                 "_elapsed": 0.0, "_lease": 0.0}
+        self.lassos.append(lasso)
         self._next_lasso_id += 1
+        return lasso
+
+    def start_lasso(self, rabbit_id, owner, seat_id=None):
+        """Direct model helper for an already landed rope; HTTP always casts."""
+        rabbit, anchor, error = self._lasso_target(rabbit_id, owner, seat_id)
+        if error:
+            return error
+        lasso = self._new_lasso(rabbit, owner, seat_id, anchor, rabbit, 0.0)
+        self._hook_lasso(lasso, rabbit)
+        return "lassoed"
+
+    def cast_lasso(self, rabbit_id, owner, seat_id=None, *, x=None, y=None):
+        """Throw toward a fixed point, leaving the rabbit free until landing."""
+        rabbit, anchor, error = self._lasso_target(rabbit_id, owner, seat_id)
+        if error:
+            return error
+        aim = {"x": rabbit["x"], "y": rabbit["y"]} if x is None and y is None else {"x": x, "y": y}
+        if not self.is_safe_position(aim["x"], aim["y"]):
+            return "invalid_position"
+        duration = min(1.2, .8 + .4 * min(1.0, self._distance(anchor, aim) / 900))
+        self._new_lasso(rabbit, owner, seat_id, anchor, aim, duration)
         return "lassoed"
 
     def _owned_lasso(self, lasso_id, owner):
@@ -452,8 +487,9 @@ class Meadow:
         if error:
             return error
         lasso["_lease"] = self.lasso_lease
-        rabbit = next(item for item in self.rabbits if item["id"] == lasso["rabbitId"])
-        rabbit["moving"] = bool(lasso["_path"])
+        if lasso["phase"] == "reeling":
+            rabbit = next(item for item in self.rabbits if item["id"] == lasso["rabbitId"])
+            rabbit["moving"] = bool(lasso["_path"])
         return "pulling"
 
     def stop_lasso(self, lasso_id, owner):
@@ -461,8 +497,9 @@ class Meadow:
         if error:
             return error
         lasso["_lease"] = 0.0
-        rabbit = next(item for item in self.rabbits if item["id"] == lasso["rabbitId"])
-        rabbit.update(moving=False, hopProgress=0)
+        if lasso["phase"] == "reeling":
+            rabbit = next(item for item in self.rabbits if item["id"] == lasso["rabbitId"])
+            rabbit.update(moving=False, hopProgress=0)
         return "pull_stopped"
 
     def cancel_lasso(self, lasso_id, owner):
@@ -480,11 +517,13 @@ class Meadow:
 
     def _finish_lasso(self, lasso, outcome, rabbit, *, settle=True):
         self.lassos.remove(lasso)
+        point = {"x": lasso["castX"], "y": lasso["castY"]} if outcome == "missed" else rabbit
         self.lasso_results.append({"id": lasso["id"], "rabbitId": lasso["rabbitId"],
                                    "seatId": lasso["seatId"], "anchorX": lasso["anchorX"], "anchorY": lasso["anchorY"],
-                                   "outcome": outcome, "x": rabbit["x"], "y": rabbit["y"], "time": self.time})
+                                   "outcome": outcome, "x": point["x"], "y": point["y"], "time": self.time,
+                                   "coat": rabbit["coat"], "_owner": lasso["_owner"]})
         self.lasso_results[:] = self.lasso_results[-12:]
-        if settle:
+        if settle and lasso["phase"] == "reeling":
             self._settle(rabbit)
 
     def _advance_lassos(self, dt):
@@ -494,6 +533,16 @@ class Meadow:
             lasso["remaining"] = max(0.0, lasso["remaining"] - dt)
             if lasso["remaining"] <= 1e-9:
                 self._finish_lasso(lasso, "escaped", rabbit)
+                continue
+            if lasso["phase"] == "casting":
+                lasso["_lease"] = max(0.0, lasso["_lease"] - dt)
+                lasso["castElapsed"] = min(lasso["castDuration"], lasso["castElapsed"] + dt)
+                if lasso["castElapsed"] >= lasso["castDuration"] - 1e-9:
+                    aim = {"x": lasso["castX"], "y": lasso["castY"]}
+                    if self._distance(rabbit, aim) <= self.lasso_hit_radius:
+                        self._hook_lasso(lasso, rabbit)
+                    else:
+                        self._finish_lasso(lasso, "missed", rabbit, settle=False)
                 continue
             pulling_time = min(dt, lasso["_lease"], lasso["_duration"] - lasso["_elapsed"])
             lasso["_lease"] = max(0.0, lasso["_lease"] - dt)
@@ -539,13 +588,13 @@ class Meadow:
                 "basket": [public(rabbit) for rabbit in self.basket],
                 "carrots": deepcopy(self.carrots), "pairs": deepcopy(self.pairs),
                 "lassos": [{**public(item), "progress": min(1, item["_elapsed"] / item["_duration"]),
-                            "pulling": item["_lease"] > 1e-9} for item in self.lassos],
-                "lassoResults": deepcopy(self.lasso_results)}
+                            "pulling": item["phase"] == "reeling" and item["_lease"] > 1e-9} for item in self.lassos],
+                "lassoResults": [public(item) for item in self.lasso_results]}
 
     def export_state(self):
         # JSON encoding turns random's tuple hierarchy into arrays; from_state
         # restores that hierarchy before calling setstate(). No pickle is used.
-        return deepcopy({"version": self.schema_version, "width": self.width, "height": self.height,
+        return deepcopy({"version": self.schema_version, "worldId": self.world_id, "width": self.width, "height": self.height,
                          "maxRabbits": self.max_rabbits, "time": self.time, "bornCount": self.born_count,
                          "raidedCount": self.raided_count, "encounter": self.encounter,
                          "nextEncounterId": self._next_encounter_id, "nextEncounterIn": self._next_encounter_in,
@@ -560,11 +609,12 @@ class Meadow:
         """Reject incomplete/corrupt state instead of silently deleting a shared world."""
         try:
             if (not isinstance(state, dict) or type(state["version"]) is not int
-                    or state["version"] not in (1, 2, 3, cls.schema_version)):
+                    or state["version"] not in (1, 2, 3, 4, cls.schema_version)):
                 raise ValueError("unsupported meadow state version")
             if state["width"] != cls.width or state["height"] != cls.height:
                 raise ValueError("unsupported meadow dimensions")
             model = cls(0, initial_count=0, max_rabbits=state["maxRabbits"])
+            model.world_id = state["worldId"] if state["version"] >= 5 else state.get("worldId", model.world_id)
             model.time, model.born_count = state["time"], state["bornCount"]
             model._pair_check = state["pairCheck"]
             for name in ("rabbits", "basket", "carrots", "pairs", "receipts"):
@@ -595,6 +645,18 @@ class Meadow:
                         lasso["seatId"] = None
                     for result in model.lasso_results:
                         result.update(seatId=None, anchorX=cls.lasso_anchor["x"], anchorY=cls.lasso_anchor["y"])
+                if state["version"] < 5:
+                    lookup = {rabbit["id"]: rabbit for rabbit in model.rabbits + model.basket}
+                    for lasso in model.lassos:
+                        rabbit = lookup[lasso["rabbitId"]]
+                        lasso.setdefault("phase", "reeling")
+                        lasso.setdefault("castX", rabbit["x"])
+                        lasso.setdefault("castY", rabbit["y"])
+                        lasso.setdefault("castDuration", 0.0)
+                        lasso.setdefault("castElapsed", 0.0)
+                    for result in model.lasso_results:
+                        result.setdefault("coat", lookup.get(result["rabbitId"], {}).get("coat"))
+                        result.setdefault("_owner", None)
             def tuples(value):
                 return tuple(tuples(item) for item in value) if isinstance(value, (list, tuple)) else value
             model._random.setstate(tuples(state["randomState"]))
@@ -633,6 +695,8 @@ class Meadow:
             request_ids.append(receipt["requestId"])
         if len(set(request_ids)) != len(request_ids):
             raise ValueError("duplicate action receipt")
+        if not isinstance(self.world_id, str) or str(UUID(self.world_id)) != self.world_id:
+            raise ValueError("invalid meadow world identity")
         number(self.time)
         integer(self.born_count, 0)
         integer(self.raided_count, 0)
@@ -689,7 +753,8 @@ class Meadow:
         lasso_ids, lasso_rabbits, owners, occupied_seats = [], [], [], []
         for lasso in self.lassos:
             expected = {"id", "rabbitId", "seatId", "anchorX", "anchorY", "remaining", "_owner", "_path",
-                        "_length", "_duration", "_elapsed", "_lease"}
+                        "_length", "_duration", "_elapsed", "_lease",
+                        "phase", "castX", "castY", "castDuration", "castElapsed"}
             if not isinstance(lasso, dict) or set(lasso) != expected or not self._valid_owner(lasso["_owner"]):
                 raise ValueError("invalid lasso owner or fields")
             integer(lasso["id"])
@@ -712,6 +777,21 @@ class Meadow:
             if lasso["_elapsed"] > self.lasso_lifetime - lasso["remaining"] + 1e-7:
                 raise ValueError("lasso progressed faster than time")
             rabbit = lookup[lasso["rabbitId"]]
+            if lasso["phase"] not in ("casting", "reeling"):
+                raise ValueError("invalid lasso phase")
+            point({"x": lasso["castX"], "y": lasso["castY"]})
+            number(lasso["castDuration"], 0, 1.2)
+            number(lasso["castElapsed"], 0, lasso["castDuration"])
+            if lasso["castElapsed"] > self.lasso_lifetime - lasso["remaining"] + 1e-7:
+                raise ValueError("cast progressed faster than time")
+            if lasso["phase"] == "casting":
+                if (lasso["castDuration"] < .8 or lasso["castElapsed"] >= lasso["castDuration"]
+                        or lasso["_path"] or lasso["_length"] or lasso["_elapsed"]
+                        or rabbit["state"] == "roped"):
+                    raise ValueError("invalid flying lasso")
+                continue
+            if lasso["castElapsed"] != lasso["castDuration"]:
+                raise ValueError("unfinished cast cannot reel")
             if rabbit["state"] != "roped" or rabbit["pairId"] is not None or rabbit["_carrotId"] is not None:
                 raise ValueError("invalid roped rabbit")
             path = lasso["_path"]
@@ -735,11 +815,11 @@ class Meadow:
             raise ValueError("duplicate lasso rabbit or owner")
         if len(set(occupied_seats)) != len(occupied_seats):
             raise ValueError("duplicate lasso seat")
-        if {rabbit["id"] for rabbit in all_rabbits if rabbit["state"] == "roped"} != set(lasso_rabbits):
+        if {rabbit["id"] for rabbit in all_rabbits if rabbit["state"] == "roped"} != {item["rabbitId"] for item in self.lassos if item["phase"] == "reeling"}:
             raise ValueError("orphaned lasso")
         previous_result_time = -1
         for result in self.lasso_results:
-            if not isinstance(result, dict) or set(result) != {"id", "rabbitId", "seatId", "anchorX", "anchorY", "outcome", "x", "y", "time"}:
+            if not isinstance(result, dict) or set(result) != {"id", "rabbitId", "seatId", "anchorX", "anchorY", "outcome", "x", "y", "time", "coat", "_owner"}:
                 raise ValueError("invalid lasso result")
             anchor = self._anchor_for_seat(result["seatId"])
             if result["anchorX"] != anchor["x"] or result["anchorY"] != anchor["y"]:
@@ -747,8 +827,12 @@ class Meadow:
             integer(result["id"])
             integer(result["rabbitId"])
             lasso_ids.append(result["id"])
-            if result["rabbitId"] >= self._next_rabbit_id or result["outcome"] not in ("caught", "stolen", "escaped", "cancelled"):
+            if result["rabbitId"] >= self._next_rabbit_id or result["outcome"] not in ("caught", "stolen", "escaped", "cancelled", "missed"):
                 raise ValueError("invalid lasso outcome")
+            if result["coat"] is not None and result["coat"] not in self.coats:
+                raise ValueError("invalid result coat")
+            if result["_owner"] is not None and not self._valid_owner(result["_owner"]):
+                raise ValueError("invalid result owner")
             point(result)
             number(result["time"], max(0, self.time - 8), self.time)
             if result["time"] < previous_result_time:

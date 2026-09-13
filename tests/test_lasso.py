@@ -279,7 +279,7 @@ class LassoPersistenceTests(unittest.TestCase):
         world.start_lasso(1, OWNER)
         world.pull_lasso(world.lasso_for(OWNER), OWNER)
         snapshot = world.snapshot()
-        self.assertEqual(set(snapshot['lassos'][0]), {'id', 'rabbitId', 'seatId', 'anchorX', 'anchorY', 'remaining', 'progress', 'pulling'})
+        self.assertEqual(set(snapshot['lassos'][0]), {'id', 'rabbitId', 'seatId', 'anchorX', 'anchorY', 'remaining', 'progress', 'pulling', 'phase', 'castX', 'castY', 'castDuration', 'castElapsed'})
         self.assertNotIn(OWNER, json.dumps(snapshot))
         snapshot['lassos'][0]['rabbitId'] = 999
         self.assertEqual(world.lassos[0]['rabbitId'], 1)

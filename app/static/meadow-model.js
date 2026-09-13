@@ -1,22 +1,29 @@
 // The server owns rabbit coats and wildlife events as well as movement.
 // This module only smooths received snapshots; it never rolls a random event.
-import { validSeats } from './meadow-seats.js?v=meadow9';
+import { validSeats } from './meadow-seats.js?v=meadow10';
 const coats = new Set(['white','cream','caramel','chocolate','silver','charcoal','ginger','spotted']);
 function validCoat(rabbit) { return rabbit.coat === undefined || coats.has(rabbit.coat); }
 const identity=value=>Number.isSafeInteger(value)&&value>0;
 const between=(value,low,high)=>Number.isFinite(value)&&value>=low&&value<=high;
+function validFlight(rope) {
+  if(rope.phase===undefined)return true; // A pre-flight server snapshot.
+  return ['casting','reeling'].includes(rope.phase)
+    && between(rope.castX,0,1000)&&between(rope.castY,0,600)
+    && between(rope.castDuration,0,1.2)&&between(rope.castElapsed,0,rope.castDuration)
+    && (rope.phase!=='casting'||(rope.castDuration>=.8&&rope.progress===0&&!rope.pulling));
+}
 function validLassos(state) {
   const ropes=state.lassos??[],results=state.lassoResults??[];
   return Array.isArray(ropes)&&ropes.length<=8&&Array.isArray(results)&&results.length<=12
     && ropes.every(rope=>identity(rope.id)&&identity(rope.rabbitId)
       && between(rope.anchorX,0,1000)&&between(rope.anchorY,0,600)
-      && between(rope.progress,0,1)&&between(rope.remaining,0,25)&&typeof rope.pulling==='boolean'
+      && between(rope.progress,0,1)&&between(rope.remaining,0,25)&&typeof rope.pulling==='boolean'&&validFlight(rope)
       &&state.rabbits.some(rabbit=>rabbit.id===rope.rabbitId))
     && new Set(ropes.map(rope=>rope.id)).size===ropes.length
     && new Set(ropes.map(rope=>rope.rabbitId)).size===ropes.length
     && (state.myLassoId==null||ropes.some(rope=>rope.id===state.myLassoId))
     && results.every(result=>identity(result.id)&&identity(result.rabbitId)
-      &&['caught','stolen','escaped','cancelled'].includes(result.outcome)
+      &&['caught','stolen','escaped','cancelled','missed'].includes(result.outcome)
       &&between(result.x,0,1000)&&between(result.y,0,600)&&between(result.time,0,Infinity));
 }
 function validEncounter(event) {
@@ -66,6 +73,9 @@ export function createSnapshotBuffer(duration = 1000) {
     const lassos=(latest.lassos||[]).map(rope=>{
       const prior=priorRopes.get(rope.id);
       return {...rope,progress:prior?prior.progress+(rope.progress-prior.progress)*progress:rope.progress,
+        // Animate only the flight already authorized by the server. Reaching
+        // the fixed point never locally hooks a rabbit or decides a result.
+        castElapsed:rope.phase==='casting'?Math.min(rope.castDuration,rope.castElapsed+Math.max(0,now-receivedAt)/1000):rope.castElapsed,
         remaining:prior?prior.remaining+(rope.remaining-prior.remaining)*progress:rope.remaining};
     });
     return { ...latest, time, encounter, lassos, rabbits: latest.rabbits.map(rabbit => {

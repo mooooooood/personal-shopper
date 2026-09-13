@@ -165,7 +165,7 @@ class SeatApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.service.cached['seats'][1]['status'],'away')
         returned=await self.state(1)
         self.assertEqual(returned['mySeatId'],2)
-        self.assertEqual(returned['seats'][1]['status'],'roped')
+        self.assertEqual(returned['seats'][1]['status'],'casting')
         legacy=await self.state(2)
         rope=next(rope for rope in legacy['lassos'] if rope['id']==legacy['myLassoId'])
         self.assertIsNone(rope['seatId'])

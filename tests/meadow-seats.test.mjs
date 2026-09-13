@@ -24,6 +24,19 @@ test('eight simultaneous pulls keep their own anchors, colours and per-seat prog
   }
   assert.deepEqual(first,world());
 });
+test('other visitors see the casting seat and a miss instead of a capture',()=>{
+  const state=world();
+  Object.assign(state.lassos[0],{phase:'casting',castDuration:1,castElapsed:.3,castX:500,castY:320,pulling:false,progress:0});
+  state.seats[0].status='casting';
+  const buffer=createSnapshotBuffer();buffer.accept(state,0);
+  assert.equal(seatActivity(state.seats[0],state),'Casting · loop in flight');
+  const missed=world(2);missed.lassos.shift();missed.myLassoId=null;
+  Object.assign(missed.seats[0],{lassoId:null,status:'ready'});
+  missed.lassoResults=[{id:1,rabbitId:1,seatId:1,anchorX:90,anchorY:230,outcome:'missed',x:500,y:320,time:2}];
+  buffer.accept(missed,1000);
+  assert.equal(seatActivity(missed.seats[0],missed),'Loop missed the rabbit');
+  assert.equal(buffer.latest.rabbits.length,8);assert.equal(buffer.latest.basket.length,0);
+});
 test('departing players disappear immediately and stale polls cannot bring them back online',()=>{
   const buffer=createSnapshotBuffer();buffer.accept(world(),0);
   const left=world(2);left.lassos=[];left.myLassoId=null;left.mySeatId=null;left.onlineCount=0;

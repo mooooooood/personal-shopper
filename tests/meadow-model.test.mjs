@@ -156,6 +156,19 @@ test('invalid coats and wildlife payloads cannot replace a good snapshot', () =>
 });
 
 const rope=(id,rabbitId,progress=0)=>({id,rabbitId,anchorX:500,anchorY:380,progress,remaining:20,pulling:true});
+test('a confirmed flight animates to its fixed aim without predicting a hook',()=>{
+  const buffer=createSnapshotBuffer();
+  const flight={...rope(1,1),phase:'casting',castX:500,castY:300,castDuration:1,castElapsed:0,pulling:false};
+  buffer.accept(snapshot(1,[rabbit(1,300)],{lassos:[flight],myLassoId:1}),0);
+  const halfway=buffer.sample(500);assert.equal(halfway.lassos[0].castElapsed,.5);
+  assert.equal(halfway.lassos[0].progress,0);assert.equal(halfway.rabbits[0].x,300);
+  const late=buffer.sample(10000);assert.equal(late.lassos[0].castElapsed,1);
+  assert.equal(late.lassos[0].phase,'casting');assert.equal(late.basket.length,0);
+  assert.equal(flight.castElapsed,0);
+  for(const change of [{castDuration:0},{castElapsed:2},{castX:NaN},{phase:'imaginary'},{pulling:true}]){
+    assert.throws(()=>buffer.accept(snapshot(2,[rabbit(1,300)],{lassos:[{...flight,...change}]}),2000));
+  }
+});
 test('a lasso keeps its rabbit on grass while progress and position interpolate',()=>{
   const buffer=createSnapshotBuffer();
   buffer.accept(snapshot(1,[rabbit(1,300)],{lassos:[rope(8,1,.1)],myLassoId:8}),0);
