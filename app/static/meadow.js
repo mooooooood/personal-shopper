@@ -1,7 +1,7 @@
-import { drawRabbit } from './rabbit-art.js?v=meadow8';
-import { createLassoPuller } from './lasso-pull.js?v=meadow8';
-import { createSeededRandom, createSnapshotBuffer, toWorldPoint } from './meadow-model.js?v=meadow8';
-import { seatName, seatPalette, seatActivity, recentSeatResult, seatResultMessage } from './meadow-seats.js?v=meadow8';
+import { drawRabbit } from './rabbit-art.js?v=meadow9';
+import { createAutoLassoPuller } from './lasso-pull.js?v=meadow9';
+import { createSeededRandom, createSnapshotBuffer, toWorldPoint } from './meadow-model.js?v=meadow9';
+import { seatName, seatPalette, seatActivity, recentSeatResult, seatResultMessage } from './meadow-seats.js?v=meadow9';
 
 const byId = id => document.getElementById(id);
 
@@ -72,7 +72,7 @@ function startMeadow() {
     }catch{return requestId();}
   })();
   const ownLasso = state => (state?.lassos || []).find(lasso=>lasso.id===state.myLassoId);
-  const puller=createLassoPuller({send:sendLasso,accept,change:controls,error:cause=>{
+  const puller=createAutoLassoPuller({send:sendLasso,accept,change:controls,error:cause=>{
     if(['lasso_gone','not_yours'].includes(cause.message))return;
     connection(false);status('The rope is resting while we reconnect. Pulling stops when the connection is lost.');queuePoll(1000);
   }});
@@ -86,16 +86,15 @@ function startMeadow() {
     byId('pause-meadow').disabled = !buffer.latest;
     const own=ownLasso(buffer.latest);
     byId('lasso-controls').hidden=!own;
-    byId('pull-rabbit').disabled=blocked||!own||puller.stopping;
-    byId('pull-rabbit').textContent=puller.heldId!==null?'Pulling… release to pause':'Hold to pull';
-    byId('pull-rabbit').classList.toggle('is-pulling',puller.heldId!==null);
-    byId('pull-rabbit').dataset.pulling=String(puller.heldId!==null);
-    byId('pull-rabbit').setAttribute('aria-pressed',String(puller.heldId!==null));
     byId('cancel-lasso').disabled=blocked||!own;
+  }
+  function followRope(){
+    puller.update(buffer.latest?.myLassoId??null,
+      connected&&!paused&&!pending&&!document.hidden&&!aboutDialog?.open&&!helpDialog?.open);
   }
   function connection(ok) {
     connected = ok;
-    if(!ok)puller.stop();
+    followRope();
     const indicator = byId('connection-status');
     const label = ok ? 'Shared meadow · connected' : 'Reconnecting…';
     if (indicator.textContent !== label) indicator.textContent = label;
@@ -114,7 +113,7 @@ function startMeadow() {
     if(own){
       const percent=Math.round(own.progress*100);
       byId('lasso-progress').value=own.progress;
-      const label=`${percent}% home · ${Math.ceil(own.remaining)}s on the rope`;
+      const label=`${own.pulling?'Reeling in':'Rope ready'} · ${percent}% · ${Math.ceil(own.remaining)}s`;
       if(byId('lasso-label').textContent!==label)byId('lasso-label').textContent=label;
     }
     const numbers = `${state.rabbits.length}/${state.bornCount}/${state.basket.length}`;
@@ -167,9 +166,11 @@ function startMeadow() {
   function accept(state) {
     const old = buffer.latest;
     const changed = buffer.accept(state, performance.now());
-    if(!changed)return;
+    if(!changed){
+      if(old?.epoch===state.epoch&&old.revision===state.revision)connection(true);
+      return;
+    }
     const previousLasso=ownLasso(old);
-    puller.sync(state.myLassoId??null);
     const outcome=previousLasso && (state.lassoResults||[]).find(result=>result.id===previousLasso.id);
     if(old?.epoch!==state.epoch)seatFeed=null;
     else {
@@ -188,7 +189,7 @@ function startMeadow() {
       && (old?.encounter?.id !== state.encounter.id || old?.encounter?.phase !== state.encounter.phase)) {
       const event = state.encounter, animal = event.kind === 'eagle' ? 'An eagle' : 'A grey wolf';
       status(event.phase === 'warning' ? `${animal} is nearby. Rabbits on a rope are still out in the open.`
-        : event.phase === 'chasing' ? `${animal} is approaching! Pull your rabbit all the way home.`
+        : event.phase === 'chasing' ? `${animal} is approaching! Your rope is still out in the open.`
         : event.carrying ? `${animal} carried a rabbit away. The rest of the meadow keeps growing.`
         : `${animal} is leaving empty-handed. A lucky moment for the meadow.`);
     }
@@ -255,21 +256,17 @@ function startMeadow() {
     return request('/api/meadow/actions',{method:'POST',headers:{'Content-Type':'application/json','X-Meadow-Client':'1'},
       body:JSON.stringify({action,lassoId,requestId:requestId()})});
   }
-  function beginPull(){
-    const own=ownLasso(buffer.latest);
-    if(!own||!connected||paused||pending||document.hidden||aboutDialog?.open||helpDialog?.open)return;
-    if(puller.start(own.id))status('Keep pulling toward the basket. The rope does not protect your rabbit from wildlife.');
-  }
   async function action(details) {
     if (!connected || paused || pending) return;
     pending = true;
+    followRope();
     controls();
     const body = JSON.stringify({...details, requestId:requestId()});
     try {
       const result = await request('/api/meadow/actions', {method:'POST', headers:{'Content-Type':'application/json','X-Meadow-Client':'1'}, body});
       accept(result.state);
       const messages = {
-        lassoed:'A loop around your rabbit! Hold to pull it toward the basket.',
+        lassoed:'Got a loop! Your rabbit is coming home. Watch out for wildlife.',
         meadow_full:'All eight seats are taken. Watch the others; you will join when a seat opens.',
         seat_busy:'This seat already has a rope. Sync the meadow before casting again.',
         lasso_cancelled:'You let go. The rabbit is free again.',
@@ -293,7 +290,7 @@ function startMeadow() {
         status('That action could not be confirmed. Reconnecting to check the shared meadow before trying again.');
         queuePoll(1000);
       }
-    } finally { pending = false; controls(); }
+    } finally { pending = false; followRope(); controls(); }
   }
   function chooseTool(next) {
     if (next !== 'watch' && (!connected || paused || pending)) return;
@@ -301,12 +298,11 @@ function startMeadow() {
       status('All eight seats are taken. You can watch and leave carrots while a seat opens.');return;
     }
     tool = next;
-    puller.stop();
     for (const name of ['watch','carrot','net']) byId(`tool-${name}`).setAttribute('aria-pressed', String(name === tool));
-    canvas.setAttribute('aria-label', `Shared rabbit meadow. ${tool === 'net' ? 'Lasso' : tool === 'carrot' ? 'Carrot' : 'Watch'} selected. Arrow keys move the ring; Enter uses the tool. Hold Space to pull a roped rabbit.`);
+    canvas.setAttribute('aria-label', `Shared rabbit meadow. ${tool === 'net' ? 'Lasso' : tool === 'carrot' ? 'Carrot' : 'Watch'} selected. Arrow keys move the ring; Enter or Space uses the tool. A roped rabbit reels in automatically.`);
     status({watch:'One meadow, shared by everyone. Take a little time to watch it grow.',
       carrot:'Tap the grass to leave a carrot. Other visitors will see it too.',
-      net:'Tap a rabbit to cast a lasso. Then hold to pull it all the way home.'}[tool]);
+      net:'Tap a rabbit once. Your lasso will bring it back automatically.'}[tool]);
     draw();
   }
   function point(event) {
@@ -319,7 +315,7 @@ function startMeadow() {
       status('You are watching for now. A free seat will be assigned automatically.');return;
     }
     if (tool === 'carrot') { action({action:'carrot', ...toWorldPoint(position.x,position.y,W,H)}); return; }
-    if(tool==='net'&&ownLasso(buffer.latest)){status('Your rabbit is on the rope. Hold to pull, or choose Let go.');return;}
+    if(tool==='net'&&ownLasso(buffer.latest)){status('Your rabbit is already coming home. Let go if you want to release it.');return;}
     const radius = Math.max(40,28*W/canvas.getBoundingClientRect().width);
     // Hit the visible torso, rather than the ground point below the new sprite.
     const hitDistance = rabbit => Math.hypot(rabbit.x-position.x,
@@ -341,28 +337,14 @@ function startMeadow() {
   canvas.addEventListener('pointerleave',()=>{cursor.visible=false;if(!canRun())draw();});
   canvas.addEventListener('click',event=>{cursor={...point(event),visible:false};keyboardRing=false;useTool(cursor);});
   canvas.addEventListener('focus',()=>{keyboardRing=true;draw();});
-  canvas.addEventListener('blur',()=>{puller.stop();keyboardRing=false;draw();});
+  canvas.addEventListener('blur',()=>{keyboardRing=false;draw();});
   canvas.addEventListener('keydown',event=>{
     const moves={ArrowLeft:[-35,0],ArrowRight:[35,0],ArrowUp:[0,-35],ArrowDown:[0,35]};
     if(moves[event.key]){event.preventDefault();cursor.x=Math.max(0,Math.min(W,cursor.x+moves[event.key][0]));cursor.y=Math.max(0,Math.min(H,cursor.y+moves[event.key][1]));keyboardRing=true;draw();}
-    else if(event.key===' '&&ownLasso(buffer.latest)){event.preventDefault();if(!event.repeat)beginPull();}
     else if(event.key==='Enter'||event.key===' '){event.preventDefault();if(!event.repeat)useTool(cursor);}
     else if(['w','c','n'].includes(event.key.toLowerCase()))chooseTool({w:'watch',c:'carrot',n:'net'}[event.key.toLowerCase()]);
   });
-  canvas.addEventListener('keyup',event=>{if(event.key===' '){event.preventDefault();puller.stop();}});
-  const pullButton=byId('pull-rabbit');
-  pullButton.addEventListener('pointerdown',event=>{
-    if(event.button!==0)return;
-    event.preventDefault();pullButton.focus();pullButton.setPointerCapture(event.pointerId);beginPull();
-  });
-  for(const event of ['pointerup','pointercancel','lostpointercapture','blur'])pullButton.addEventListener(event,()=>puller.stop());
-  pullButton.addEventListener('keydown',event=>{
-    if(event.key!==' '&&event.key!=='Enter')return;
-    event.preventDefault();if(event.repeat)return;
-    if(event.key==='Enter'&&puller.heldId!==null)puller.stop();else beginPull();
-  });
-  pullButton.addEventListener('keyup',event=>{if(event.key===' '){event.preventDefault();puller.stop();}});
-  byId('cancel-lasso').addEventListener('click',()=>{const own=ownLasso(buffer.latest);puller.stop();if(own)action({action:'cancel_lasso',lassoId:own.id});});
+  byId('cancel-lasso').addEventListener('click',()=>{const own=ownLasso(buffer.latest);if(own)action({action:'cancel_lasso',lassoId:own.id});});
   function pauseLabel() {
     byId('pause-meadow').textContent=paused?'▶ Live view':'Ⅱ Pause view';
     byId('pause-meadow').setAttribute('aria-pressed',String(paused));
@@ -370,7 +352,7 @@ function startMeadow() {
   function pauseView(next) {
     if (next && !paused) frozen=buffer.sample(performance.now());
     paused=next;
-    if(paused)puller.stop();
+    followRope();
     if (!paused) {frozen=null;poll();}
     pauseLabel(); controls(); schedule(); draw();
     status(paused?'Only your view is paused. The shared meadow continues for everyone else.':'Back to the live shared meadow.');
@@ -438,10 +420,9 @@ function startMeadow() {
   function canRun(){return connected&&!paused&&!document.hidden&&!aboutDialog?.open&&!helpDialog?.open;}
   function tick(now){frame=0;if(!canRun()){lastTime=0;return;}if(!lastTime)lastTime=now;const elapsed=now-lastTime;if(elapsed>=1000/30){lastTime=now;for(const p of particles)p.age+=Math.min(elapsed/1000,.1);particles=particles.filter(p=>p.age<1.6);draw();}frame=requestAnimationFrame(tick);}
   function schedule(){if(frame)cancelAnimationFrame(frame);frame=0;lastTime=0;if(canRun())frame=requestAnimationFrame(tick);}
-  document.addEventListener('visibilitychange',()=>{if(document.hidden)puller.stop();clearTimeout(pollTimer);schedule();if(!document.hidden)poll();});
-  window.addEventListener('meadow-overlay-change',()=>{puller.stop();schedule();if(!aboutDialog?.open&&!helpDialog?.open)poll();});
-  window.addEventListener('blur',()=>puller.stop());
-  window.addEventListener('pagehide',()=>puller.stop());
+  document.addEventListener('visibilitychange',()=>{followRope();clearTimeout(pollTimer);schedule();if(!document.hidden)poll();});
+  window.addEventListener('meadow-overlay-change',()=>{followRope();schedule();if(!aboutDialog?.open&&!helpDialog?.open)poll();});
+  window.addEventListener('pagehide',()=>puller.update(buffer.latest?.myLassoId??null,false));
   window.addEventListener('online',()=>poll());
   window.addEventListener('offline',()=>{connection(false);status('Offline for a moment. The shared meadow will reconnect when you are back.');});
   new ResizeObserver(resize).observe(canvas);

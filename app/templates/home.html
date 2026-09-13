@@ -7,7 +7,7 @@
   <meta name="description" content="{{ site.description }}">
   <meta name="theme-color" content="#d9e7bf">
   {% if base_url %}<link rel="canonical" href="{{ base_url }}/">{% endif %}
-  <link rel="stylesheet" href="/static/meadow.css?v=meadow8">
+  <link rel="stylesheet" href="/static/meadow.css?v=meadow9">
 </head>
 <body>
   <main id="main" class="meadow-world" aria-label="The rabbit meadow">
@@ -45,7 +45,7 @@
       <p id="meadow-status" class="meadow-status" role="status" aria-live="polite" aria-atomic="true">One meadow, shared by everyone. Make yourself at home.</p>
       <div id="lasso-controls" class="lasso-controls glass" hidden>
         <div class="lasso-meter"><p id="lasso-label">Rabbit on the rope</p><progress id="lasso-progress" max="1" value="0" aria-label="Pulling progress"></progress></div>
-        <div class="lasso-actions"><button type="button" id="pull-rabbit">Hold to pull</button><button type="button" id="cancel-lasso">Let go</button></div>
+        <div class="lasso-actions"><button type="button" id="cancel-lasso">Let go</button></div>
       </div>
       <div class="meadow-toolbar glass" aria-label="Meadow controls">
         <div class="meadow-tools" role="group" aria-label="Choose a meadow tool">
@@ -129,21 +129,21 @@
       <h2 id="help-title">Small lives.<br>Simple pleasures.</h2>
       <div id="meadow-help">
         <p>Everyone visits the same little world. Rabbits, carrots and the basket are shared. Grown-up rabbits meet, share a heart and welcome a baby with a randomly chosen coat: snowy white, caramel, charcoal, spotted and more.</p>
-        <p><strong>Eight seats, one meadow.</strong> Join a numbered seat at the edge of the grass and watch other players cast, pause and pull their own ropes. Your seat has a matching colour and a basket to aim for. Open the online count to see each seat’s activity. These are real visitors, with no computer players filling empty seats.</p>
+        <p><strong>Eight seats, one meadow.</strong> Join a numbered seat at the edge of the grass and watch other players cast and reel in their own ropes. Your seat has a matching colour and a basket to aim for. Open the online count to see each seat’s activity. These are real visitors, with no computer players filling empty seats.</p>
         <p>If all eight seats are taken, you can watch until a place opens; the page will try to join you automatically. A short absence has a <strong>20-second grace period</strong>. An unfinished rope keeps its seat reserved until it is released or expires. No sign-up is needed.</p>
-        <dl class="help-steps"><div><dt>Watch</dt><dd>See who’s hopping around. Tap a rabbit to say hello.</dd></div><div><dt>Carrot</dt><dd>Tap the grass to leave a treat for everyone’s rabbits.</dd></div><div><dt>Lasso</dt><dd>Choose Lasso and tap a rabbit. Hold <strong>Hold to pull</strong> to reel it towards your seat’s basket, cowboy style. Lift your finger to stop pulling; <strong>Let go</strong> unties the rope.</dd></div><div><dt>Release</dt><dd>Bring one rabbit out of the shared basket and back onto the grass.</dd></div></dl>
-        <p>A rabbit needs at least <strong>4.5 seconds of pulling</strong> to reach the basket. The rope slips free after <strong>25 seconds</strong>, so keep an eye on the progress bar. Everyone can see your rope, but only you can pull or untie it.</p>
+        <dl class="help-steps"><div><dt>Watch</dt><dd>See who’s hopping around. Tap a rabbit to say hello.</dd></div><div><dt>Carrot</dt><dd>Tap the grass to leave a treat for everyone’s rabbits.</dd></div><div><dt>Lasso</dt><dd>Choose Lasso and tap a rabbit once. The rope casts and automatically reels it towards your seat’s basket. No holding or second click needed. <strong>Let go</strong> unties the rope.</dd></div><div><dt>Release</dt><dd>Bring one rabbit out of the shared basket and back onto the grass.</dd></div></dl>
+        <p>A rabbit needs at least <strong>4.5 seconds of pulling</strong> to reach the basket. The rope slips free after <strong>25 seconds</strong>, so keep an eye on the progress bar. Everyone can see your rope. It reels in for you automatically; only you can untie it.</p>
         <p>The seat baskets all lead to the <strong>same shared basket</strong>. Catching a rabbit keeps it safe for everyone; it does not become a private item.</p>
         <p><strong>Wild visitors</strong> sometimes arrive after a short warning. An eagle or grey wolf can steal a rabbit <strong>while you are pulling it in</strong>. Your rabbit is safe only once it reaches the basket. Each visit takes at most one rabbit and leaves at least two on the grass.</p>
-        <p><strong>Pause</strong> freezes only your view and disables feeding, lassoing and releasing. Pausing, opening a panel or switching tabs also stops your pull. <strong>Play</strong> brings you back to the latest shared state. Other visitors can keep playing while you take a break.</p>
+        <p><strong>Pause</strong> freezes only your view and disables feeding, lassoing and releasing. Pausing, opening a panel or switching tabs rests your rope. Returning to the active meadow automatically resumes your unfinished pull before the rope expires. <strong>Play</strong> brings you back to the latest shared state. Other visitors can keep playing while you take a break.</p>
         <p><strong>Sync</strong> fetches the latest shared state. Refreshing the page or returning later keeps the meadow’s progress. When nobody is watching, the meadow rests until someone returns.</p>
         <p>If the connection drops, interactions are disabled while the page reconnects. Your view will catch up when the connection returns.</p>
-        <p class="keyboard-tip"><strong>Playing with a keyboard?</strong> Focus the map and use the arrow keys to move the cursor. W / C / N select Watch, Carrot or Lasso; Enter or Space uses the tool. With a rabbit on your rope, hold Space to pull and release it to stop. On the pull button, Enter toggles pulling on or off. Press Escape to close this window.</p>
+        <p class="keyboard-tip"><strong>Playing with a keyboard?</strong> Focus the map and use the arrow keys to move the cursor. W / C / N select Watch, Carrot or Lasso; Enter or Space uses the tool. Press once to cast; your rabbit reels in automatically. You do not need to hold a key. Press Escape to close this window.</p>
       </div>
       <p class="dialog-footnote">There’s no score. Just one little world to share.</p>
     </div>
   </dialog>
-  <script type="module" src="/static/meadow.js?v=meadow8"></script>
-  <script type="module" src="/static/sourcing.js?v=meadow8"></script>
+  <script type="module" src="/static/meadow.js?v=meadow9"></script>
+  <script type="module" src="/static/sourcing.js?v=meadow9"></script>
 </body>
 </html>

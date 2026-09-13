@@ -45,3 +45,29 @@ export function createLassoPuller({send, accept, change=()=>{}, error=()=>{},
     },
   };
 }
+
+// Follow the current owned rope automatically. View changes supply intent;
+// the ordered lease stream still prevents a late pull from overtaking a stop.
+export function createAutoLassoPuller(options) {
+  let target=null, active=false, queued=false;
+  const reconcile=()=>{
+    if(queued)return;
+    queued=true;
+    queueMicrotask(()=>{
+      queued=false;
+      if(active&&target!==null&&stream.heldId===null&&!stream.stopping)stream.start(target);
+    });
+  };
+  const stream=createLassoPuller({...options,
+    change:()=>{options.change?.();reconcile();},
+    error:cause=>{active=false;options.error?.(cause);},
+  });
+  return {
+    update(id,enabled){
+      target=Number.isSafeInteger(id)&&id>0?id:null;active=Boolean(enabled);
+      stream.sync(target);
+      if(!active)stream.stop();
+      reconcile();
+    },
+  };
+}
