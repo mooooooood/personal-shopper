@@ -20,7 +20,7 @@ class Meadow:
     nesting_duration = 2.8
     margin = 28
     pond = {"x": 825, "y": 135, "rx": 114, "ry": 72}
-    schema_version = 5
+    schema_version = 6
     coats = ("white", "cream", "caramel", "chocolate", "silver", "charcoal", "ginger", "spotted")
     lasso_anchor = {"x": 500, "y": 380}
     seat_anchors = [
@@ -36,6 +36,13 @@ class Meadow:
     lasso_lifetime = 25
     lasso_lease = 1.2
     lasso_hit_radius = 48
+    burrows = (
+        {"id": 1, "x": 260, "y": 270}, {"id": 2, "x": 540, "y": 205},
+        {"id": 3, "x": 760, "y": 350}, {"id": 4, "x": 340, "y": 440},
+        {"id": 5, "x": 660, "y": 460},
+    )
+    burrow_durations = {"entering": .9, "underground": 2.0, "emerging": .9}
+    burrow_limit = 3
 
     def __init__(self, seed=None, *, initial_count=12, max_rabbits=60):
         if type(max_rabbits) is not int or not 1 <= max_rabbits <= 60:
@@ -154,7 +161,8 @@ class Meadow:
             "direction": self._random.choice((-1, 1)), "partnerId": None, "pairId": None,
             "cooldown": self._between(9, 13) if adult else self._between(3, 6),
             "_wait": self._between(.1, 1.5), "_speed": self._between(65, 92),
-            "_path": [], "_carrotId": None,
+            "_path": [], "_carrotId": None, "burrow": None, "burrowTrips": 0,
+            "_burrowTarget": None, "_burrowWait": 10 + self._next_rabbit_id * 7 % 19,
         }
         self._next_rabbit_id += 1
         return rabbit
@@ -162,6 +170,7 @@ class Meadow:
     def _settle(self, rabbit):
         rabbit.update(state="idle", moving=False, hopProgress=0, pairProgress=0,
                       partnerId=None, pairId=None, _path=[], _carrotId=None,
+                      burrow=None, _burrowTarget=None,
                       _wait=self._between(.4, 1.5))
 
     def _end_pair(self, pair, interrupted=False):
@@ -175,7 +184,7 @@ class Meadow:
         vacancies = self.max_rabbits - self.total_count - len(self.pairs)
         eligible = [rabbit for rabbit in self.rabbits
                     if rabbit["adult"] and rabbit["cooldown"] <= 0 and not rabbit["pairId"]
-                    and rabbit["state"] != "roped"]
+                    and rabbit["state"] not in ("roped", "burrow") and rabbit["_burrowTarget"] is None]
         while len(eligible) > 1 and vacancies > 0:
             first, second = min(((first, second) for i, first in enumerate(eligible)
                                  for second in eligible[i + 1:]),
@@ -214,6 +223,42 @@ class Meadow:
         if was_moving and not rabbit["moving"] and not rabbit["pairId"]:
             rabbit.update(state="idle", _wait=self._between(.5, 2.2))
 
+    def _plan_burrow(self, rabbit):
+        """A few unoccupied rabbits occasionally choose a short underground trip."""
+        if (rabbit["burrow"] or rabbit["pairId"] or rabbit["state"] == "roped"
+                or any(rope["rabbitId"] == rabbit["id"] for rope in self.lassos)
+                or sum(bool(item["burrow"] or item["_burrowTarget"]) for item in self.rabbits) >= self.burrow_limit):
+            return False
+        entrance = min(self.burrows, key=lambda hole: self._distance(rabbit, hole))
+        rabbit["_burrowTarget"] = entrance["id"]
+        self._move_toward(rabbit, entrance)
+        return True
+
+    def _enter_burrow(self, rabbit):
+        entrance = self.burrows[rabbit["_burrowTarget"] - 1]
+        destination = self._random.choice(self.burrows)
+        self._settle(rabbit)
+        rabbit["burrowTrips"] += 1
+        rabbit.update(x=entrance["x"], y=entrance["y"], state="burrow",
+                      burrow={"entryId": entrance["id"], "exitId": destination["id"],
+                              "phase": "entering", "remaining": self.burrow_durations["entering"]})
+
+    def _advance_burrow(self, rabbit, dt):
+        trip = rabbit["burrow"]
+        trip["remaining"] = max(0.0, trip["remaining"] - dt)
+        if trip["remaining"] > 1e-9:
+            return
+        if trip["phase"] == "entering":
+            trip.update(phase="underground", remaining=self.burrow_durations["underground"])
+        elif trip["phase"] == "underground":
+            destination = self.burrows[trip["exitId"] - 1]
+            rabbit.update(x=destination["x"], y=destination["y"], direction=self._random.choice((-1, 1)))
+            trip.update(phase="emerging", remaining=self.burrow_durations["emerging"])
+        else:
+            self._settle(rabbit)
+            rabbit["_burrowWait"] = self._between(20, 40)
+            rabbit["cooldown"] = max(3, rabbit["cooldown"])
+
     def update(self, dt):
         """Advance one bounded step; the service decides whether visitors are present."""
         if not self._finite(dt) or dt <= 0:
@@ -231,7 +276,16 @@ class Meadow:
             rabbit["adult"] = rabbit["age"] >= self.adult_age
             if rabbit["adult"]:
                 rabbit["cooldown"] = max(0, rabbit["cooldown"] - dt)
+            rabbit["_burrowWait"] = max(0.0, rabbit["_burrowWait"] - dt)
+            if rabbit["burrow"] is not None:
+                self._advance_burrow(rabbit, dt)
+                continue
             if rabbit["state"] == "roped":
+                continue
+            if rabbit["_burrowTarget"] is not None:
+                self._advance_movement(rabbit, dt)
+                if not rabbit["moving"]:
+                    self._enter_burrow(rabbit)
                 continue
             if not rabbit["pairId"]:
                 nearby = [carrot for carrot in self.carrots if self._distance(rabbit, carrot) < 330]
@@ -247,6 +301,8 @@ class Meadow:
                     if carrot and self._distance(rabbit, carrot) < 32:
                         carrot["remaining"] -= dt * .2
                     elif rabbit["_wait"] <= 0:
+                        if not carrot and rabbit["_burrowWait"] <= 0 and self._plan_burrow(rabbit):
+                            continue
                         self._move_toward(rabbit, self._safe_point(rabbit["x"] + self._between(-145, 145),
                                                                  rabbit["y"] + self._between(-105, 105)))
             self._advance_movement(rabbit, dt)
@@ -276,7 +332,8 @@ class Meadow:
 
     def _start_encounter(self, kind=None):
         # The basket is a refuge. Wildlife never takes the last two on the grass.
-        if self.encounter is not None or len(self.rabbits) <= 2:
+        surface = [rabbit for rabbit in self.rabbits if rabbit["burrow"] is None]
+        if self.encounter is not None or len(surface) <= 2:
             return False
         kind = kind or self._random.choice(("eagle", "wolf"))
         if kind not in ("eagle", "wolf"):
@@ -288,7 +345,7 @@ class Meadow:
             point = self._safe_point(self._between(self.margin, self.width - self.margin),
                                      self._random.choice((self.margin, self.height - self.margin)))
         roped = [rabbit for rabbit in self.rabbits if rabbit["state"] == "roped"]
-        target = self._random.choice(roped if roped and self._random.random() < .65 else self.rabbits)
+        target = self._random.choice(roped if roped and self._random.random() < .65 else surface)
         self.encounter = {
             "id": self._next_encounter_id, "kind": kind, "phase": "warning", **point,
             "direction": 1 if target["x"] >= point["x"] else -1,
@@ -344,7 +401,8 @@ class Meadow:
                 self._next_encounter_in = self._between(35, 70)
             return
         target = next((rabbit for rabbit in self.rabbits if rabbit["id"] == animal["targetId"]), None)
-        if target is None or len(self.rabbits) <= 2:
+        if (target is None or target["burrow"] is not None
+                or sum(rabbit["burrow"] is None for rabbit in self.rabbits) <= 2):
             self._leave_encounter()
             return
         if animal["phase"] == "warning":
@@ -385,7 +443,7 @@ class Meadow:
         if type(rabbit_id) is not int:
             return None
         rabbit = next((rabbit for rabbit in self.rabbits if rabbit["id"] == rabbit_id), None)
-        if rabbit is None:
+        if rabbit is None or rabbit["burrow"] is not None:
             return None
         pair = next((pair for pair in self.pairs if pair["id"] == rabbit["pairId"]), None)
         if pair:
@@ -423,6 +481,8 @@ class Meadow:
         rabbit = next((item for item in self.rabbits if type(rabbit_id) is int and item["id"] == rabbit_id), None)
         if rabbit is None:
             return None, anchor, "rabbit_gone"
+        if rabbit["burrow"] is not None:
+            return None, anchor, "rabbit_hidden"
         if self.lasso_for(owner) is not None:
             return None, anchor, "player_busy"
         if any(item["rabbitId"] == rabbit_id for item in self.lassos):
@@ -446,6 +506,7 @@ class Meadow:
         rabbit["moving"] = lasso["_lease"] > 1e-9 and bool(path)
 
     def _new_lasso(self, rabbit, owner, seat_id, anchor, aim, cast_duration):
+        rabbit["_burrowTarget"] = None
         lasso = {"id": self._next_lasso_id, "rabbitId": rabbit["id"],
                  "seatId": seat_id, "anchorX": anchor["x"], "anchorY": anchor["y"],
                  "phase": "casting", "castX": aim["x"], "castY": aim["y"],
@@ -579,10 +640,10 @@ class Meadow:
         return rabbit
 
     def snapshot(self):
-        public = lambda rabbit: {key: value for key, value in rabbit.items() if not key.startswith("_")}
+        public = lambda rabbit: {key: deepcopy(value) for key, value in rabbit.items() if not key.startswith("_")}
         return {"width": self.width, "height": self.height, "maxRabbits": self.max_rabbits,
                 "adultAge": self.adult_age, "time": self.time, "bornCount": self.born_count,
-                "raidedCount": self.raided_count,
+                "raidedCount": self.raided_count, "burrows": deepcopy(list(self.burrows)),
                 "encounter": deepcopy(public(self.encounter)) if self.encounter is not None else None,
                 "totalCount": self.total_count, "rabbits": [public(rabbit) for rabbit in self.rabbits],
                 "basket": [public(rabbit) for rabbit in self.basket],
@@ -609,7 +670,7 @@ class Meadow:
         """Reject incomplete/corrupt state instead of silently deleting a shared world."""
         try:
             if (not isinstance(state, dict) or type(state["version"]) is not int
-                    or state["version"] not in (1, 2, 3, 4, cls.schema_version)):
+                    or state["version"] not in (1, 2, 3, 4, 5, cls.schema_version)):
                 raise ValueError("unsupported meadow state version")
             if state["width"] != cls.width or state["height"] != cls.height:
                 raise ValueError("unsupported meadow dimensions")
@@ -619,6 +680,12 @@ class Meadow:
             model._pair_check = state["pairCheck"]
             for name in ("rabbits", "basket", "carrots", "pairs", "receipts"):
                 setattr(model, name, deepcopy(state[name]))
+            if state["version"] < 6:
+                for rabbit in model.rabbits + model.basket:
+                    rabbit.setdefault("burrow", None)
+                    rabbit.setdefault("burrowTrips", 0)
+                    rabbit.setdefault("_burrowTarget", None)
+                    rabbit.setdefault("_burrowWait", 10 + rabbit["id"] * 7 % 19)
             # The old shared meadow only had white rabbits. Upgrading preserves
             # every rabbit, action receipt and pairing instead of reseeding it.
             if state["version"] == 1:
@@ -720,8 +787,34 @@ class Meadow:
                 raise ValueError("inconsistent rabbit maturity")
             if type(rabbit["moving"]) is not bool or type(rabbit["direction"]) is not int or rabbit["direction"] not in (-1, 1):
                 raise ValueError("invalid movement state")
-            if rabbit["state"] not in ("idle", "hopping", "pairing", "nesting", "basket", "roped"):
+            if rabbit["state"] not in ("idle", "hopping", "pairing", "nesting", "basket", "roped", "burrow"):
                 raise ValueError("invalid rabbit state")
+            number(rabbit["_burrowWait"], 0, 40)
+            integer(rabbit["burrowTrips"], 0)
+            if rabbit["_burrowTarget"] is not None:
+                integer(rabbit["_burrowTarget"])
+                if (rabbit["_burrowTarget"] > len(self.burrows) or rabbit["pairId"] is not None
+                        or rabbit["burrow"] is not None or rabbit["state"] != "hopping"):
+                    raise ValueError("invalid burrow destination")
+            trip = rabbit["burrow"]
+            if trip is not None:
+                if (not isinstance(trip, dict) or set(trip) != {"entryId", "exitId", "phase", "remaining"}
+                        or trip["phase"] not in self.burrow_durations or rabbit["state"] != "burrow"
+                        or rabbit["burrowTrips"] < 1
+                        or rabbit["moving"] or rabbit["_path"] or rabbit["pairId"] is not None
+                        or rabbit["partnerId"] is not None or rabbit["_carrotId"] is not None):
+                    raise ValueError("invalid underground journey")
+                for key in ("entryId", "exitId"):
+                    integer(trip[key])
+                    if trip[key] > len(self.burrows):
+                        raise ValueError("invalid rabbit hole")
+                number(trip["remaining"], 1e-9, self.burrow_durations[trip["phase"]])
+                hole_id = trip["exitId"] if trip["phase"] == "emerging" else trip["entryId"]
+                hole = self.burrows[hole_id - 1]
+                if rabbit["x"] != hole["x"] or rabbit["y"] != hole["y"]:
+                    raise ValueError("rabbit is outside its burrow")
+            elif rabbit["state"] == "burrow":
+                raise ValueError("missing underground journey")
             path = rabbit["_path"]
             if (not isinstance(path, list) or len(path) > 18
                     or (rabbit["state"] != "roped" and rabbit["moving"] != bool(path))
@@ -736,6 +829,8 @@ class Meadow:
             for key in ("partnerId", "pairId", "_carrotId"):
                 if rabbit[key] is not None:
                     integer(rabbit[key])
+        if sum(bool(rabbit["burrow"] or rabbit["_burrowTarget"]) for rabbit in all_rabbits) > self.burrow_limit:
+            raise ValueError("too many burrow journeys")
         if len(set(ids)) != len(ids):
             raise ValueError("duplicate rabbit")
         if any(rabbit["state"] != "basket" or rabbit["pairId"] or rabbit["moving"] for rabbit in self.basket):
@@ -777,6 +872,8 @@ class Meadow:
             if lasso["_elapsed"] > self.lasso_lifetime - lasso["remaining"] + 1e-7:
                 raise ValueError("lasso progressed faster than time")
             rabbit = lookup[lasso["rabbitId"]]
+            if rabbit["burrow"] is not None or rabbit["_burrowTarget"] is not None:
+                raise ValueError("lasso target is in a burrow")
             if lasso["phase"] not in ("casting", "reeling"):
                 raise ValueError("invalid lasso phase")
             point({"x": lasso["castX"], "y": lasso["castY"]})

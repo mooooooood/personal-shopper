@@ -1,4 +1,4 @@
-import { getRabbitPose } from './rabbit-pose.js?v=meadow10';
+import { getRabbitPose } from './rabbit-pose.js?v=meadow11';
 
 // Painted once per coat, then articulated at runtime. No image downloads or
 // per-frame fur gradients: the small sprite atlas is shared by all rabbits.

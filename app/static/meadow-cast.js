@@ -1,4 +1,4 @@
-import { seatPalette } from './meadow-seats.js?v=meadow10';
+import { seatPalette } from './meadow-seats.js?v=meadow11';
 
 const clamp = value => Math.max(0, Math.min(1, value));
 

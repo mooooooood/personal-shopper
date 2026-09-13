@@ -1,10 +1,30 @@
 // The server owns rabbit coats and wildlife events as well as movement.
 // This module only smooths received snapshots; it never rolls a random event.
-import { validSeats } from './meadow-seats.js?v=meadow10';
+import { validSeats } from './meadow-seats.js?v=meadow11';
 const coats = new Set(['white','cream','caramel','chocolate','silver','charcoal','ginger','spotted']);
 function validCoat(rabbit) { return rabbit.coat === undefined || coats.has(rabbit.coat); }
 const identity=value=>Number.isSafeInteger(value)&&value>0;
 const between=(value,low,high)=>Number.isFinite(value)&&value>=low&&value<=high;
+function validBurrows(state) {
+  const holes=state.burrows??[];
+  if(!Array.isArray(holes)||(state.burrows!==undefined&&holes.length!==5)
+    ||!holes.every(hole=>identity(hole.id)&&hole.id<=5&&between(hole.x,28,972)&&between(hole.y,28,572))
+    ||new Set(holes.map(hole=>hole.id)).size!==holes.length)return false;
+  const rabbits=[...state.rabbits,...state.basket];
+  if(rabbits.filter(rabbit=>rabbit.burrow!=null).length>3)return false;
+  return rabbits.every(rabbit=>{
+    if(rabbit.burrowTrips!==undefined&&(!Number.isSafeInteger(rabbit.burrowTrips)||rabbit.burrowTrips<0))return false;
+    const trip=rabbit.burrow;
+    if(trip==null)return rabbit.state!=='burrow';
+    const durations={entering:.9,underground:2,emerging:.9};
+    if(rabbit.state!=='burrow'||rabbit.moving||rabbit.pairId!=null||!rabbit.burrowTrips
+      ||!(trip.phase in durations)||!between(trip.remaining,0,durations[trip.phase])
+      ||!holes.some(hole=>hole.id===trip.entryId)||!holes.some(hole=>hole.id===trip.exitId)
+      ||state.basket.some(item=>item.id===rabbit.id)||(state.lassos||[]).some(rope=>rope.rabbitId===rabbit.id))return false;
+    const hole=holes.find(hole=>hole.id===(trip.phase==='emerging'?trip.exitId:trip.entryId));
+    return rabbit.x===hole.x&&rabbit.y===hole.y;
+  });
+}
 function validFlight(rope) {
   if(rope.phase===undefined)return true; // A pre-flight server snapshot.
   return ['casting','reeling'].includes(rope.phase)
@@ -79,7 +99,13 @@ export function createSnapshotBuffer(duration = 1000) {
         remaining:prior?prior.remaining+(rope.remaining-prior.remaining)*progress:rope.remaining};
     });
     return { ...latest, time, encounter, lassos, rabbits: latest.rabbits.map(rabbit => {
-      const old = previous.get(rabbit.id);
+      const prior = previous.get(rabbit.id);
+      // A complete underground trip can happen between two polls. The saved
+      // trip counter also prevents a cross-map glide when those phases are missed.
+      const crossedBurrow=prior&&((prior.burrowTrips??0)!==(rabbit.burrowTrips??0)||prior.burrow||rabbit.burrow);
+      const old=crossedBurrow?null:prior;
+      const burrow=rabbit.burrow?{...rabbit.burrow,
+        remaining:Math.max(0,rabbit.burrow.remaining-Math.max(0,now-receivedAt)/1000)}:rabbit.burrow;
       // A server rabbit may already be at rest while its previous movement is
       // still reaching the screen. Animate that real displacement, not moving
       // alone, then settle before reaching the final received position.
@@ -88,7 +114,7 @@ export function createSnapshotBuffer(duration = 1000) {
       const motionAmount = travelling
         ? (priorMotion + (1 - priorMotion) * smooth(progress / .14)) * (1 - smooth((progress - .80) / .20))
         : priorMotion * (1 - smooth(progress / .20));
-      return { ...rabbit,
+      return { ...rabbit, burrow,
         x: old ? old.x + (rabbit.x - old.x) * progress : rabbit.x,
         y: old ? old.y + (rabbit.y - old.y) * progress : rabbit.y,
         motionAmount,
@@ -107,6 +133,7 @@ export function createSnapshotBuffer(duration = 1000) {
         Number.isSafeInteger(rabbit.id) && Number.isFinite(rabbit.x) && Number.isFinite(rabbit.y) && validCoat(rabbit))
       || !validEncounter(state.encounter)
       || !validLassos(state)
+      || !validBurrows(state)
       || !validSeats(state)
       || (state.raidedCount !== undefined && (!Number.isSafeInteger(state.raidedCount) || state.raidedCount < 0))) {
       throw new Error('Invalid meadow snapshot');

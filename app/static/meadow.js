@@ -1,11 +1,12 @@
-import { drawRabbit } from './rabbit-art.js?v=meadow10';
-import { createAutoLassoPuller } from './lasso-pull.js?v=meadow10';
-import { createSeededRandom, createSnapshotBuffer, toWorldPoint } from './meadow-model.js?v=meadow10';
-import { seatName, seatPalette, seatActivity, recentSeatResult, seatResultMessage } from './meadow-seats.js?v=meadow10';
+import { drawRabbit } from './rabbit-art.js?v=meadow11';
+import { createAutoLassoPuller } from './lasso-pull.js?v=meadow11';
+import { createSeededRandom, createSnapshotBuffer, toWorldPoint } from './meadow-model.js?v=meadow11';
+import { seatName, seatPalette, seatActivity, recentSeatResult, seatResultMessage } from './meadow-seats.js?v=meadow11';
 
-import { drawCast, drawRetractingCast, drawLandingDust } from './meadow-cast.js?v=meadow10';
-import { drawWildlifeCues } from './meadow-cues.js?v=meadow10';
-import { mountCaptureJournal } from './meadow-journal.js?v=meadow10';
+import { drawCast, drawRetractingCast, drawLandingDust } from './meadow-cast.js?v=meadow11';
+import { drawWildlifeCues } from './meadow-cues.js?v=meadow11';
+import { mountCaptureJournal } from './meadow-journal.js?v=meadow11';
+import { drawBurrows, drawBurrowRabbit } from './meadow-burrows.js?v=meadow11';
 
 const byId = id => document.getElementById(id);
 
@@ -288,6 +289,7 @@ function startMeadow() {
         not_yours:'This rope belongs to another visitor.',
         released:'Back on the grass, for everyone to enjoy.',
         carrot_added:'A carrot for our shared meadow. Watch who comes over.',
+        rabbit_hidden:'That rabbit slipped into a burrow. Watch another entrance for its ears!',
         rabbit_gone:'That rabbit has already left this spot. Check the meadow and shared basket.',
         basket_empty:'The shared basket is empty. Everyone is out on the grass.',
         carrot_limit:'There are already six carrots in the meadow. Let the rabbits finish a few.',
@@ -331,7 +333,7 @@ function startMeadow() {
     // Hit the visible torso, rather than the ground point below the new sprite.
     const hitDistance = rabbit => Math.hypot(rabbit.x-position.x,
       rabbit.y-(rabbit.adult?24:16)-position.y);
-    const nearest = rendered.rabbits.map(projected).sort((a,z) => hitDistance(a)-hitDistance(z))[0];
+    const nearest = rendered.rabbits.filter(rabbit=>!rabbit.burrow).map(projected).sort((a,z) => hitDistance(a)-hitDistance(z))[0];
     if (!nearest || hitDistance(nearest)>radius) {
       status(tool==='net'?'A little closer to a rabbit. Carrots can bring them over.':'A peaceful little world. Choose Carrot or Lasso, or simply watch.');
       return;
@@ -383,6 +385,7 @@ function startMeadow() {
     if (!state) return;
     rendered=state;
     counters(state);
+    drawBurrows(ctx,state,{width:W,height:H,reducedMotion:reducedMotion.matches});
     drawWildlifeCues(ctx,state,{width:W,height:H,reducedMotion:reducedMotion.matches});
     for(const carrot of state.carrots){const p=projected(carrot);drawCarrot(ctx,p.x,p.y,1);}
     const legacyHome=projected({x:500,y:380});
@@ -396,7 +399,7 @@ function startMeadow() {
         if(rope.castDuration&&!reducedMotion.matches){const p=projected(rabbit);drawLandingDust(ctx,p.x,p.y,25-rope.remaining-rope.castDuration);}
       }
     }
-    for(const rabbit of [...state.rabbits].sort((a,z)=>a.y-z.y))drawRabbit(ctx,projected(rabbit),state.time);
+    for(const rabbit of [...state.rabbits].sort((a,z)=>a.y-z.y))drawBurrowRabbit(ctx,projected(rabbit),state.time,drawRabbit,{reducedMotion:reducedMotion.matches});
     for(const rope of state.lassos||[]){
       const rabbit=state.rabbits.find(rabbit=>rabbit.id===rope.rabbitId);
       if(rabbit&&rope.phase!=='casting'){const p=projected(rabbit);drawRopeLoop(ctx,p.x,p.y,rope.id===state.myLassoId,rope.pulling,rope.seatId,25-rope.remaining-(rope.castDuration||0));}
