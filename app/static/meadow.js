@@ -1,12 +1,14 @@
-import { drawRabbit } from './rabbit-art.js?v=meadow11';
-import { createAutoLassoPuller } from './lasso-pull.js?v=meadow11';
-import { createSeededRandom, createSnapshotBuffer, toWorldPoint } from './meadow-model.js?v=meadow11';
-import { seatName, seatPalette, seatActivity, recentSeatResult, seatResultMessage } from './meadow-seats.js?v=meadow11';
+import { drawRabbit } from './rabbit-art.js?v=meadow13';
+import { createAutoLassoPuller } from './lasso-pull.js?v=meadow13';
+import { createSnapshotBuffer, toWorldPoint } from './meadow-model.js?v=meadow13';
+import { seatName, seatPalette, seatActivity, recentSeatResult, seatResultMessage } from './meadow-seats.js?v=meadow13';
 
-import { drawCast, drawRetractingCast, drawLandingDust } from './meadow-cast.js?v=meadow11';
-import { drawWildlifeCues } from './meadow-cues.js?v=meadow11';
-import { mountCaptureJournal } from './meadow-journal.js?v=meadow11';
-import { drawBurrows, drawBurrowRabbit } from './meadow-burrows.js?v=meadow11';
+import { drawCast, drawRetractingCast, drawLandingDust } from './meadow-cast.js?v=meadow13';
+import { drawWildlifeCues } from './meadow-cues.js?v=meadow13';
+import { mountCaptureJournal } from './meadow-journal.js?v=meadow13';
+import { drawBurrows, drawBurrowRabbit } from './meadow-burrows.js?v=meadow13';
+
+import { paintLandscape, paintForeground, drawMeadowAtmosphere, rabbitRenderScale } from './meadow-scene.js?v=meadow13';
 
 const byId = id => document.getElementById(id);
 
@@ -68,8 +70,9 @@ function startMeadow() {
   let paused = reducedMotion.matches;
   const background = document.createElement('canvas');
   const b = background.getContext('2d');
+  const foreground=document.createElement('canvas'),front=foreground.getContext('2d');
   const status = message => { byId('meadow-status').textContent = message; };
-  const projected = item => ({...item, x:item.x / 1000 * W, y:item.y / 600 * H});
+  const projected = item => ({...item, x:item.x / 1000 * W, y:item.y / 600 * H, renderScale:rabbitRenderScale(item.y)});
   const playerId = (()=>{
     try {
       const saved=localStorage.getItem('meadow.player.v1');
@@ -332,14 +335,14 @@ function startMeadow() {
     const radius = Math.max(tool==='net'?75*W/1000:40,28*W/canvas.getBoundingClientRect().width);
     // Hit the visible torso, rather than the ground point below the new sprite.
     const hitDistance = rabbit => Math.hypot(rabbit.x-position.x,
-      rabbit.y-(rabbit.adult?24:16)-position.y);
+      rabbit.y-(rabbit.adult?24:16)*rabbit.renderScale-position.y);
     const nearest = rendered.rabbits.filter(rabbit=>!rabbit.burrow).map(projected).sort((a,z) => hitDistance(a)-hitDistance(z))[0];
     if (!nearest || hitDistance(nearest)>radius) {
       status(tool==='net'?'A little closer to a rabbit. Carrots can bring them over.':'A peaceful little world. Choose Carrot or Lasso, or simply watch.');
       return;
     }
     if (tool === 'net') {
-      const aim=toWorldPoint(position.x,position.y+(nearest.adult?24:16),W,H);
+      const aim=toWorldPoint(position.x,position.y+(nearest.adult?24:16)*nearest.renderScale,W,H);
       action({action:'lasso',rabbitId:nearest.id,...aim});
     }
     else {
@@ -385,6 +388,7 @@ function startMeadow() {
     if (!state) return;
     rendered=state;
     counters(state);
+    drawMeadowAtmosphere(ctx,W,H,state.time,{reducedMotion:reducedMotion.matches});
     drawBurrows(ctx,state,{width:W,height:H,reducedMotion:reducedMotion.matches});
     drawWildlifeCues(ctx,state,{width:W,height:H,reducedMotion:reducedMotion.matches});
     for(const carrot of state.carrots){const p=projected(carrot);drawCarrot(ctx,p.x,p.y,1);}
@@ -402,7 +406,7 @@ function startMeadow() {
     for(const rabbit of [...state.rabbits].sort((a,z)=>a.y-z.y))drawBurrowRabbit(ctx,projected(rabbit),state.time,drawRabbit,{reducedMotion:reducedMotion.matches});
     for(const rope of state.lassos||[]){
       const rabbit=state.rabbits.find(rabbit=>rabbit.id===rope.rabbitId);
-      if(rabbit&&rope.phase!=='casting'){const p=projected(rabbit);drawRopeLoop(ctx,p.x,p.y,rope.id===state.myLassoId,rope.pulling,rope.seatId,25-rope.remaining-(rope.castDuration||0));}
+      if(rabbit&&rope.phase!=='casting'){const p=projected(rabbit);drawRopeLoop(ctx,p.x,p.y,rope.id===state.myLassoId,rope.pulling,rope.seatId,25-rope.remaining-(rope.castDuration||0),p.renderScale);}
     }
     for(const seat of state.seats||[]){
       const rope=(state.lassos||[]).find(item=>item.id===seat.lassoId);
@@ -425,6 +429,7 @@ function startMeadow() {
     ctx.globalAlpha=1;
     drawButterfly(ctx,W*(.32+Math.sin(state.time*.22)*.105),H*(.157+Math.sin(state.time*.39)*.037),state.time,'#e9b891');
     drawButterfly(ctx,W*(.88+Math.sin(state.time*.27+3)*.038),H*(.688+Math.sin(state.time*.48)*.05),state.time+2,'#fbf4c8');
+    ctx.drawImage(foreground,0,0);
     if((cursor.visible||keyboardRing)&&connected&&!paused){ctx.strokeStyle='#426947';ctx.lineWidth=2;ctx.setLineDash([5,5]);ctx.beginPath();ctx.ellipse(cursor.x,cursor.y,tool==='net'?31:24,tool==='net'?22:16,0,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);if(tool==='carrot')drawCarrot(ctx,cursor.x+20,cursor.y-22,.8);if(tool==='net')drawLasso(ctx,cursor.x+15,cursor.y-24);if(tool==='watch')heart(ctx,cursor.x+16,cursor.y-25,6,'#d4828f');}
     if(paused){rounded(ctx,W/2-124,H/2-17,248,34,17,'#f7f6e9');ctx.font='12px Arial, sans-serif';ctx.textAlign='center';ctx.fillStyle='#496246';ctx.fillText('YOUR VIEW IS PAUSED',W/2,H/2+5);}
   }
@@ -435,7 +440,8 @@ function startMeadow() {
     const nextW=Math.max(240,Math.round(rect.width*unit)),nextH=Math.max(160,Math.round(rect.height*unit));
     cursor.x=cursor.x/W*nextW;cursor.y=cursor.y/H*nextH;
     W=nextW;H=nextH;
-    background.width=W;background.height=H;paintLandscape(b,W,H);particles=[];
+    background.width=W;background.height=H;paintLandscape(b,W,H);
+    foreground.width=W;foreground.height=H;paintForeground(front,W,H);particles=[];
     const dpr=Math.min(window.devicePixelRatio||1,1.5);
     canvas.width=Math.round(rect.width*dpr);canvas.height=Math.round(rect.height*dpr);
     draw();
@@ -552,7 +558,7 @@ function drawLasso(c,x,y) {
 function drawRope(c,start,rabbit,rope,time,own) {
   const colors=rope.seatId!=null?seatPalette(rope.seatId):own?['#805f37','#e4c694']:['#62786c','#c1d4b9'];
   const cast=1;
-  const end={x:start.x+(rabbit.x-start.x)*cast,y:start.y+(rabbit.y-19-start.y)*cast};
+  const end={x:start.x+(rabbit.x-start.x)*cast,y:start.y+(rabbit.y-19*(rabbit.renderScale||1)-start.y)*cast};
   const slack=rope.pulling?5:24;
   c.save();c.beginPath();c.moveTo(start.x,start.y-13);
   c.quadraticCurveTo((start.x+end.x)/2+Math.sin(time*7)*(rope.pulling?1.4:.3),
@@ -560,10 +566,11 @@ function drawRope(c,start,rabbit,rope,time,own) {
   c.lineCap='round';c.strokeStyle=colors[0];c.lineWidth=own?4.2:3.4;c.stroke();
   c.strokeStyle=colors[1];c.lineWidth=1.5;c.stroke();c.restore();
 }
-function drawRopeLoop(c,x,y,own,pulling,seatId,landAge=1) {
+function drawRopeLoop(c,x,y,own,pulling,seatId,landAge=1,scale=1) {
   const colors=seatId!=null?seatPalette(seatId):own?['#a17740','#e6cfa6']:['#6c8c77','#c4d9c0'];
   const settling=1-Math.max(0,Math.min(1,landAge/.45));
-  c.save();c.beginPath();c.ellipse(x-3,y-18,25+settling*8,(pulling?12:17)+settling*5,-.08,0,Math.PI);
+  c.save();c.translate(x,y);c.scale(scale,scale);x=0;y=0;
+  c.beginPath();c.ellipse(x-3,y-18,25+settling*8,(pulling?12:17)+settling*5,-.08,0,Math.PI);
   c.strokeStyle=colors[0];c.lineWidth=3;c.stroke();
   c.strokeStyle=colors[1];c.lineWidth=1.2;c.stroke();
   ellipse(c,x+20,y-15,3,2,colors[0]);
@@ -632,86 +639,4 @@ function drawButterfly(c, x, y, time, color) {
   ellipse(c, x - flap * 0.6, y - 2, flap, 4, color, -0.4);
   ellipse(c, x + flap * 0.6, y - 2, flap, 4, color, 0.4);
   line(c, [[x, y - 3], [x, y + 3]], '#687b4c', 1);
-}
-
-function paintLandscape(c, W, H) {
-  c.save();
-  const X = x => x * W / 1000;
-  const Y = y => y * H / 600;
-  // Place scenery relative to the viewport, but keep each object proportional.
-  const size = Math.max(0.75, Math.min(1.2, Math.sqrt(W * H / 600000)));
-  const density = Math.max(0.65, Math.min(1.6, W * H / 600000));
-  const random = createSeededRandom(31415);
-  const gradient = c.createLinearGradient(0, 0, W, H);
-  gradient.addColorStop(0, '#dce9bc'); gradient.addColorStop(1, '#c6dba3');
-  c.fillStyle = gradient; c.fillRect(0, 0, W, H);
-  // Soft patches give the grass depth without a single image request.
-  for (let i = 0; i < Math.round(50 * density); i++) ellipse(c, random() * W, random() * H, (30 + random() * 90) * size, (15 + random() * 50) * size, i % 2 ? '#e5eec335' : '#a9c58b20');
-  c.beginPath(); c.moveTo(X(165), Y(610)); c.bezierCurveTo(X(310), Y(478), X(320), Y(486), X(490), Y(499)); c.bezierCurveTo(X(683), Y(514), X(840), Y(515), X(1020), Y(564));
-  c.strokeStyle = '#d5d5a2'; c.lineWidth = 38 * size; c.lineCap = 'round'; c.stroke();
-  c.strokeStyle = '#e0dcb2'; c.lineWidth = 28 * size; c.stroke();
-  for (let i = 0; i < Math.round(155 * density); i++) {
-    const x = 20 * size + random() * (W - 40 * size), y = 30 * size + random() * (H - 50 * size);
-    const height = (3 + random() * 6) * size;
-    line(c, [[x - 4 * size, y - height * 0.6], [x, y + size], [x + 2 * size, y - height]], '#93af7170', 1.3 * size);
-  }
-  // An oval pond, matching the collision boundary in the simulation model.
-  const pondX = X(825), pondY = Y(135), pondRX = X(100), pondRY = Y(58);
-  ellipse(c, pondX, pondY + 5 * size, pondRX + 16 * size, pondRY + 12 * size, '#b0c38e');
-  ellipse(c, pondX, pondY, pondRX + 4 * size, pondRY + 4 * size, '#c1d3a2');
-  ellipse(c, pondX, pondY, pondRX, pondRY, '#83b8ad');
-  ellipse(c, pondX, pondY + pondRY * 0.07, pondRX * 0.94, pondRY * 0.86, '#9bc9b6');
-  for (const p of [[797, 123, 22], [850, 151, 31], [840, 99, 16]]) {
-    const halfWidth = Math.min(p[2] * size, pondRX * 0.45);
-    line(c, [[X(p[0]) - halfWidth, Y(p[1])], [X(p[0]) + halfWidth, Y(p[1])]], '#d5e8d090', 2 * size);
-  }
-  ellipse(c, X(785), Y(154), 13 * size, 7 * size, '#739c68'); flower(c, X(784), Y(150), 5 * size, '#f5d4d3', '#e3b470');
-  ellipse(c, X(867), Y(114), 10 * size, 6 * size, '#6b9864');
-  for (const [baseX, baseY, baseSize] of [[740, 180, 14], [757, 188, 9], [920, 114, 12], [911, 99, 9]]) {
-    const x = X(baseX), y = Y(baseY), s = baseSize * size;
-    ellipse(c, x, y + 3 * size, s, s * 0.5, '#a7b790');
-    ellipse(c, x, y, s, s * 0.6, '#dadcc1');
-    ellipse(c, x - 3 * size, y - 2 * size, s * 0.5, s * 0.26, '#e7e6ce');
-  }
-  for (let i = 0; i < 8; i++) {
-    const x = X(889 + random() * 42), y = Y(166 + random() * 20);
-    line(c, [[x, y], [x - 3 * size, y - (22 + random() * 12) * size]], '#74965e', 2 * size);
-    line(c, [[x, y], [x + 8 * size, y - 17 * size]], '#88a466', 2 * size);
-  }
-  // A small, sun-bleached garden fence.
-  const fenceY = Y(64);
-  for (let x = X(85); x < X(645); x += 38 * size) {
-    line(c, [[x, fenceY - 15 * size], [x, fenceY + 15 * size]], '#bdbe8d', 8 * size);
-    line(c, [[x - size, fenceY - 16 * size], [x - size, fenceY + 10 * size]], '#f3ecd0', 7 * size);
-  }
-  line(c, [[X(70), fenceY - 7 * size], [X(659), fenceY - 7 * size]], '#e9e3bd', 5 * size);
-  line(c, [[X(70), fenceY + 6 * size], [X(659), fenceY + 6 * size]], '#eee8c9', 5 * size);
-  function shrub(baseX, baseY, baseSize, tint = '#8aa76a') {
-    const x = X(baseX), y = Y(baseY), s = baseSize * size;
-    ellipse(c, x + 4 * size, y + 10 * size, s * 1.08, s * 0.5, '#8aa36940');
-    ellipse(c, x - s * 0.4, y, s * 0.67, s * 0.62, tint);
-    ellipse(c, x + s * 0.4, y + size, s * 0.65, s * 0.61, tint);
-    ellipse(c, x, y - s * 0.2, s * 0.8, s * 0.7, tint);
-    for (let i = 0; i < 10; i++) ellipse(c, x + (random() - 0.5) * s * 1.6, y + (random() - 0.4) * s * 0.7, 2 * size, 1.2 * size, '#c4d49470');
-  }
-  shrub(34, 52, 69, '#9eb77b'); shrub(-13, 170, 54); shrub(992, 37, 83, '#a5bb80');
-  shrub(975, 270, 46, '#a5bb80'); shrub(42, 564, 61, '#91ab70'); shrub(955, 584, 71, '#89a66b');
-  shrub(55, 600, 51, '#789762'); shrub(1010, 531, 51, '#91ad70');
-  for (const patch of [[153, 198], [653, 355], [798, 449], [289, 369], [524, 133], [140, 525]]) {
-    for (let i = 0; i < Math.round(8 * Math.sqrt(density)); i++) {
-      const x = X(patch[0]) + (random() - 0.5) * 65 * size, y = Y(patch[1]) + (random() - 0.5) * 39 * size;
-      line(c, [[x, y], [x + size, y + 7 * size]], '#9bb775', size);
-      flower(c, x, y, (3 + random() * 2.5) * size, i % 3 ? '#fff9dc' : '#e8c2be', '#d0ac58');
-    }
-  }
-  // Keep decoration away from the eight catching seats and small-screen HUD.
-  if(W>700){
-  const signX = X(500), signY = Y(115);
-  line(c, [[signX, signY + 10 * size], [signX, signY + 44 * size]], '#b29a6d', 5 * size);
-  rounded(c, signX - 69 * size, signY - 13 * size, 140 * size, 32 * size, 4 * size, '#c0af7e');
-  rounded(c, signX - 70 * size, signY - 16 * size, 140 * size, 32 * size, 4 * size, '#f0e7c4');
-  c.font = `italic ${13 * size}px Georgia, serif`; c.textAlign = 'center'; c.fillStyle = '#66774e';
-  c.fillText('a little room to grow', signX, signY + 5 * size);
-  }
-  c.restore();
 }

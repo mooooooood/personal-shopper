@@ -1,4 +1,4 @@
-import { getRabbitPose } from './rabbit-pose.js?v=meadow11';
+import { getRabbitPose } from './rabbit-pose.js?v=meadow13';
 
 // Painted once per coat, then articulated at runtime. No image downloads or
 // per-frame fur gradients: the small sprite atlas is shared by all rabbits.
@@ -85,12 +85,13 @@ function leg(c,x,y,reach,colour,foot,far=false){
 export function drawRabbit(c,rabbit,time,options={}) {
   const coat=coatAtlas(rabbit.coat || 'white');
   const pose=getRabbitPose(rabbit,time);
-  const size=(rabbit.adult? .94 : .56+Math.min((rabbit.age||0)/30,1)*.18)*(options.scale||1);
+  const size=(rabbit.adult? .94 : .56+Math.min((rabbit.age||0)/30,1)*.18)*(options.scale??rabbit.renderScale??1);
   const d=rabbit.direction||1;
   if(options.shadow!==false){
-    c.save();c.globalAlpha=.19-pose.lift*.004;
-    oval(c,rabbit.x,rabbit.y+3,25*size*(1+pose.lift*.012),6*size,'#526747');
-    c.globalAlpha*=.4;oval(c,rabbit.x,rabbit.y+3,30*size,8*size,'#788763');c.restore();
+    c.save();c.globalAlpha=.15-pose.lift*.002;
+    oval(c,rabbit.x+9*size,rabbit.y+6*size,29*size,7*size,'#365540',.15);
+    c.globalAlpha=.23-pose.lift*.005;
+    oval(c,rabbit.x,rabbit.y+2*size,18*size,4*size,'#3a5540');c.restore();
   }
   c.save();c.translate(rabbit.x,rabbit.y-pose.lift*size);c.scale(d*size,size);c.rotate(pose.pitch);
   leg(c,-20,-10,pose.hindReach,coat.dark,coat.base,true);

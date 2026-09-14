@@ -1,6 +1,6 @@
 // The server owns rabbit coats and wildlife events as well as movement.
 // This module only smooths received snapshots; it never rolls a random event.
-import { validSeats } from './meadow-seats.js?v=meadow11';
+import { validSeats } from './meadow-seats.js?v=meadow13';
 const coats = new Set(['white','cream','caramel','chocolate','silver','charcoal','ginger','spotted']);
 function validCoat(rabbit) { return rabbit.coat === undefined || coats.has(rabbit.coat); }
 const identity=value=>Number.isSafeInteger(value)&&value>0;
