@@ -1,212 +1,187 @@
-import { createSeededRandom } from './meadow-model.js?v=meadow13';
+import { createSeededRandom } from './meadow-model.js?v=meadow14';
 
-// All scenery is painted once on resize. Only a few water lines and sun motes
-// move per frame; nothing here changes the shared world or its collision map.
-const TAU=Math.PI*2;
+// Scenery uses a small opaque palette and snapped rectangles. It is cached on
+// resize; the only per-frame scenery work is four little stepped water ripples.
 const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
-const oval=(c,x,y,rx,ry,color,angle=0)=>{
-  c.beginPath();c.ellipse(x,y,Math.max(.01,rx),Math.max(.01,ry),angle,0,TAU);c.fillStyle=color;c.fill();
+const C={
+  grass:'#a5b574',grassLight:'#adbd7d',grassDeep:'#9aae6c',grassShade:'#90a262',
+  grassInk:'#819656',grassSpark:'#c2cb89',canopyDark:'#405d40',canopy:'#577648',
+  canopyMid:'#6c8c50',canopyLight:'#839e59',leafLight:'#9eb567',wood:'#8d704b',
+  woodDark:'#68563b',cream:'#e8d8a5',creamLight:'#f5e6ba',dirt:'#c5b383',
+  dirtLight:'#d5c493',dirtEdge:'#a49768',water:'#6caa91',waterDark:'#478476',
+  waterMid:'#579984',waterLight:'#89bba0',foam:'#bfd2a5',stone:'#bbbfa0',
+  stoneLight:'#ddd9b2',stoneDark:'#879278',pink:'#e8b5a0',flower:'#f5e4b3',
 };
-function stroke(c,points,color,width=1){
-  c.beginPath();c.moveTo(...points[0]);for(const p of points.slice(1))c.lineTo(...p);
-  c.strokeStyle=color;c.lineWidth=width;c.lineCap='round';c.lineJoin='round';c.stroke();
+
+function pixelPainter(c,W,H){
+  const unit=3,X=x=>Math.round(x*W/1000/unit)*unit,Y=y=>Math.round(y*H/600/unit)*unit;
+  return {
+    rect(x,y,w,h,color){
+      const x0=X(x),y0=Y(y),x1=X(x+w),y1=Y(y+h);
+      c.fillStyle=color;c.fillRect(x0,y0,Math.max(unit,x1-x0),Math.max(unit,y1-y0));
+    },
+    clip(rows){c.beginPath();for(const [x,y,w,h] of rows)c.rect(X(x),Y(y),Math.max(unit,X(x+w)-X(x)),Math.max(unit,Y(y+h)-Y(y)));c.clip();},
+  };
 }
-function glow(c,x,y,rx,ry,inner,outer){
-  c.save();c.translate(x,y);c.scale(rx,ry);
-  const g=c.createRadialGradient(0,0,0,0,0,1);g.addColorStop(0,inner);g.addColorStop(1,outer);
-  oval(c,0,0,1,1,g);c.restore();
+
+function tuft(p,x,y,k=1,color=C.grassInk){
+  p.rect(x,y-6*k,3*k,6*k,color);p.rect(x+3*k,y-3*k,6*k,3*k,color);
+  p.rect(x+9*k,y-9*k,3*k,9*k,color);
 }
-function leaf(c,x,y,length,angle,color){
-  c.save();c.translate(x,y);c.rotate(angle);c.beginPath();c.moveTo(0,0);
-  c.bezierCurveTo(-length*.34,-length*.38,-length*.25,-length*.85,0,-length);
-  c.bezierCurveTo(length*.34,-length*.6,length*.32,-length*.22,0,0);
-  c.fillStyle=color;c.fill();c.restore();
+function flower(p,x,y,color=C.flower){
+  p.rect(x,y+3,3,6,C.grassInk);p.rect(x-3,y+6,3,3,C.grassInk);
+  p.rect(x-3,y-3,9,3,color);p.rect(x,y-6,3,9,color);p.rect(x,y-3,3,3,'#c6994e');
 }
-function grass(c,x,y,size,tint='#7b9760'){
-  c.save();c.translate(x,y);c.scale(size,size);
-  for(const [dx,h,bend] of [[-5,11,-4],[0,16,1],[4,10,5]]){
-    c.beginPath();c.moveTo(dx-1,2);c.quadraticCurveTo(dx-2,-h*.45,dx+bend,-h);
-    c.quadraticCurveTo(dx+2,-h*.35,dx+2,2);c.fillStyle=tint;c.fill();
+function rock(p,x,y,k=1){
+  p.rect(x-9*k,y+3*k,27*k,6*k,C.grassShade);
+  p.rect(x-12*k,y-3*k,27*k,9*k,C.stoneDark);
+  p.rect(x-6*k,y-9*k,15*k,3*k,C.stoneDark);
+  p.rect(x-9*k,y-6*k,21*k,9*k,C.stone);
+  p.rect(x-6*k,y-6*k,12*k,3*k,C.stoneLight);
+  p.rect(x-9*k,y-3*k,6*k,3*k,C.stoneLight);
+  p.rect(x+6*k,y,6*k,3*k,'#a2ad89');
+}
+function crown(p,x,y,s=1){
+  // A stepped silhouette with solid shadow, midtone and lit leaf clusters.
+  p.rect(x-36*s,y+15*s,75*s,12*s,C.grassShade);
+  p.rect(x-45*s,y-21*s,87*s,42*s,C.canopyDark);
+  p.rect(x-33*s,y-36*s,63*s,66*s,C.canopyDark);
+  p.rect(x-15*s,y-45*s,30*s,9*s,C.canopyDark);
+  p.rect(x-51*s,y-9*s,99*s,21*s,C.canopyDark);
+  p.rect(x-42*s,y-21*s,75*s,33*s,C.canopy);
+  p.rect(x-30*s,y-33*s,57*s,51*s,C.canopy);
+  p.rect(x-12*s,y-42*s,24*s,24*s,C.canopy);
+  p.rect(x-45*s,y-6*s,87*s,15*s,C.canopy);
+  p.rect(x-30*s,y-24*s,48*s,30*s,C.canopyMid);
+  p.rect(x-36*s,y-15*s,63*s,15*s,C.canopyMid);
+  p.rect(x-12*s,y-33*s,24*s,33*s,C.canopyMid);
+  for(const [dx,dy,w] of [[-24,-24,15],[-30,-15,12],[-9,-33,15],[9,-21,12],[-3,-9,18],[24,0,9],[-24,6,9]]){
+    p.rect(x+dx*s,y+dy*s,w*s,6*s,C.canopyLight);
+    p.rect(x+(dx+3)*s,y+dy*s,6*s,3*s,C.leafLight);
   }
+  p.rect(x-39*s,y+6*s,12*s,3*s,C.canopyMid);
+  p.rect(x+3*s,y+15*s,12*s,6*s,C.canopyMid);
+}
+
+function pondRows(cx,cy,rx,ry){
+  const spans=[.40,.65,.82,.94,1,1,.94,.82,.65,.40];
+  return spans.map((span,i)=>[cx-rx*span,cy-ry+i*ry/5,rx*span*2,ry/5]);
+}
+function pond(p,c){
+  const cx=825,cy=135;
+  for(const row of pondRows(cx+3,cy+9,113,69))p.rect(...row,C.grassShade);
+  for(const row of pondRows(cx,cy+3,110,66))p.rect(...row,C.dirtEdge);
+  for(const row of pondRows(cx,cy,107,63))p.rect(...row,C.dirtLight);
+  for(const row of pondRows(cx,cy,100,57))p.rect(...row,C.waterDark);
+  c.save();p.clip(pondRows(cx,cy+3,97,54));
+  p.rect(717,98,220,94,C.water);
+  p.rect(719,92,206,30,C.waterMid);
+  p.rect(728,95,39,24,C.waterDark);p.rect(746,104,39,18,C.waterDark);
+  p.rect(770,98,45,12,C.waterDark);p.rect(815,89,63,15,C.waterDark);
+  p.rect(773,122,60,6,C.waterMid);p.rect(725,137,39,9,C.waterMid);
+  p.rect(833,152,90,33,C.waterLight);p.rect(860,146,57,9,C.waterLight);
+  p.rect(800,171,63,15,C.waterLight);p.rect(875,159,33,3,C.foam);
+  p.rect(848,174,24,3,C.foam);p.rect(786,153,18,3,C.waterLight);
   c.restore();
-}
-function blossom(c,x,y,s,color='#fff4d7'){
-  oval(c,x+1,y+2,s*1.25,s*.62,'#546c4425');
-  for(let i=0;i<5;i++){const a=i*TAU/5;oval(c,x+Math.cos(a)*s*.63,y+Math.sin(a)*s*.44,s*.53,s*.38,color,a);}
-  oval(c,x,y,s*.3,s*.23,'#c39a43');oval(c,x-.25,y-.4,s*.17,s*.12,'#f5d776');
-}
-function stone(c,x,y,s){
-  oval(c,x+4*s,y+4*s,14*s,6*s,'#3c563a25');
-  const g=c.createLinearGradient(x-10*s,y-10*s,x+7*s,y+6*s);
-  g.addColorStop(0,'#eeecd5');g.addColorStop(.45,'#cbcdb6');g.addColorStop(1,'#8a9b89');
-  c.beginPath();c.moveTo(x-13*s,y);c.lineTo(x-8*s,y-8*s);c.lineTo(x+3*s,y-10*s);
-  c.lineTo(x+12*s,y-3*s);c.quadraticCurveTo(x+17*s,y+5*s,x+3*s,y+6*s);
-  c.quadraticCurveTo(x-12*s,y+8*s,x-13*s,y);c.fillStyle=g;c.fill();
-  stroke(c,[[x-9*s,y-4*s],[x-5*s,y-7*s],[x+3*s,y-8*s]],'#fff5df9c',1.2*s);
-  oval(c,x+6*s,y+4*s,4*s,1.5*s,'#869767');
-}
-function shrub(c,x,y,s,random,foreground=false){
-  const dark=foreground?'#345e4a':'#67845b',mid=foreground?'#527c50':'#85a365',light=foreground?'#8eac63':'#b2c480';
-  glow(c,x+s*.22,y+s*.25,s*1.15,s*.53,'#27493638','#27493600');
-  for(const [dx,dy,k] of [[-.6,.04,.52],[.49,0,.63],[0,-.24,.72]]){
-    const cx=x+dx*s,cy=y+dy*s;
-    const g=c.createRadialGradient(cx-s*.25,cy-s*.32,s*.03,cx,cy,s*k);
-    g.addColorStop(0,light);g.addColorStop(.5,mid);g.addColorStop(1,dark);
-    oval(c,cx,cy,s*k,s*k*.72,g);
+  for(const [x,y,k] of [[738,172,1],[754,184,.7],[916,112,1.1],[903,88,.7],[930,148,.6]])rock(p,x,y,k);
+  // Lily pads have the characteristic square bite in their right side.
+  for(const [x,y] of [[783,151],[864,119],[842,176]]){
+    p.rect(x-9,y,21,9,C.waterDark);p.rect(x-9,y-3,18,9,C.canopy);
+    p.rect(x-6,y-6,12,12,C.canopyMid);p.rect(x-6,y-6,9,3,C.leafLight);
+    p.rect(x+3,y,6,3,C.water);
   }
-  for(let i=0;i<32;i++){
-    const a=random()*TAU,r=Math.sqrt(random()),px=x+Math.cos(a)*s*r,py=y+Math.sin(a)*s*r*.49-s*.1;
-    leaf(c,px,py,s*(.10+random()*.10),-.8+random()*1.6,i%3?light:mid);
+  flower(p,780,145,C.pink);
+  for(const [x,y,h] of [[901,174,27],[910,179,36],[917,176,24],[927,169,33]]){
+    p.rect(x,y-h,3,h,C.canopy);p.rect(x-3,y-12,3,9,C.canopyMid);
+    p.rect(x+3,y-18,3,12,C.canopyMid);p.rect(x,y-h-6,3,9,C.wood);
   }
 }
+
 export function rabbitRenderScale(worldY){return .74+.30*clamp(worldY/600,0,1);}
 
 export function paintLandscape(c,W,H){
-  c.save();const X=x=>x*W/1000,Y=y=>y*H/600;
-  const s=clamp(Math.sqrt(W*H/600000),.72,1.3),random=createSeededRandom(4817);
-  const g=c.createLinearGradient(0,0,W*.3,H);
-  g.addColorStop(0,'#bdcfa3');g.addColorStop(.27,'#d5dfad');g.addColorStop(.62,'#baca8d');g.addColorStop(1,'#8daa76');
-  c.fillStyle=g;c.fillRect(0,0,W,H);
-  // Low, distant banks: pale and quiet, so the play area reads as a clearing.
-  c.beginPath();c.moveTo(0,Y(85));c.bezierCurveTo(X(150),Y(22),X(270),Y(100),X(490),Y(42));
-  c.bezierCurveTo(X(680),Y(4),X(835),Y(63),W,Y(16));c.lineTo(W,0);c.lineTo(0,0);c.closePath();c.fillStyle='#9fb887';c.fill();
-  c.beginPath();c.moveTo(0,Y(34));c.bezierCurveTo(X(170),Y(3),X(210),Y(66),X(410),Y(17));
-  c.bezierCurveTo(X(660),Y(-38),X(750),Y(40),W,Y(-2));c.lineTo(W,0);c.lineTo(0,0);c.closePath();c.fillStyle='#789c7c4d';c.fill();
-  glow(c,X(438),Y(275),W*.61,H*.52,'#f7efbb7a','#f3efc000');
-  // Broad slopes rather than repeated spots, with a lit top and cool lower edge.
-  for(const [x,y,rx,ry] of [[110,217,205,80],[495,368,215,100],[730,491,245,110],[18,474,140,130]]){
-    glow(c,X(x),Y(y+7),X(rx),Y(ry),'#6c986032','#6c986000');
-    glow(c,X(x-25),Y(y-20),X(rx*.8),Y(ry*.66),'#e9e9b936','#e9e9b900');
+  c.save();c.imageSmoothingEnabled=false;
+  const p=pixelPainter(c,W,H),random=createSeededRandom(4817);
+  p.rect(0,0,1000,600,C.grass);
+  // Broad, quiet grass tiles leave the playing field easy to read.
+  for(const [x,y,w,h] of [[0,54,310,72],[192,99,423,60],[312,153,372,75],[75,225,339,93],[192,297,432,63],[399,378,414,66],[57,420,300,63],[294,474,339,48],[696,246,279,69]]){
+    p.rect(x,y,w,h,C.grassLight);
+    p.rect(x+24,y-12,w-66,12,C.grassLight);
+    p.rect(x+42,y+h,w-99,12,C.grassLight);
   }
-  // Warm, worn footpath. A soft border lets it settle into the grass.
-  const path=()=>{c.beginPath();c.moveTo(X(120),Y(620));c.bezierCurveTo(X(280),Y(463),X(394),Y(482),X(575),Y(508));c.bezierCurveTo(X(759),Y(535),X(874),Y(506),X(1030),Y(567));};
-  for(const [width,color] of [[47,'#7c916038'],[39,'#a9ab7866'],[31,'#c5bb8b'],[24,'#d5c99b']]){path();c.strokeStyle=color;c.lineWidth=width*s;c.lineCap='round';c.stroke();}
-  // Fine grain is cached; it costs nothing extra as the rabbits move.
-  const dots=Math.round(clamp(W*H/430,650,3000));
-  for(let i=0;i<dots;i++){
-    const x=random()*W,y=random()*H;
-    oval(c,x,y,(.4+random()*.8)*s,(.3+random()*.5)*s,i%3?'#466a3c12':'#fff7d32d');
+  for(const [x,y,w,h] of [[0,135,129,54],[0,333,159,54],[765,399,235,87],[708,201,292,24],[0,531,1000,69]]){
+    p.rect(x,y,w,h,C.grassDeep);p.rect(x+24,y+h,w-48,12,C.grassDeep);
   }
-  for(let i=0;i<180;i++){
-    const x=25+random()*950,y=90+random()*475;
+  // A narrow, stair-stepped dirt path bends through the lower margin.
+  const path=[[111,597,27,36],[129,579,30,39],[150,561,33,36],[174,546,39,33],[204,534,42,30],[237,525,51,27],[279,519,72,27],[342,516,81,27],[414,519,87,27],[492,525,87,27],[570,531,99,27],[660,534,105,27],[756,540,81,27],[828,549,81,27],[900,561,108,27]];
+  for(const [x,y,w,h] of path)p.rect(x-3,y-3,w+6,h+6,C.dirtEdge);
+  for(const row of path)p.rect(...row,C.dirt);
+  for(const [x,y,w,h] of path)p.rect(x+3,y+3,w-3,Math.max(6,h-15),C.dirtLight);
+  for(let i=0;i<42;i++){
+    const [x,y,w,h]=path[Math.floor(random()*path.length)];
+    p.rect(x+random()*w,y+6+random()*(h-12),3+(i%3)*3,3,i%3?C.dirt:C.dirtEdge);
+  }
+  // Small two-pixel flecks and occasional tufts supply texture without noise.
+  for(let i=0;i<650;i++){
+    const x=12+random()*976,y=60+random()*530;
+    if(y>514||(((x-825)/121)**2+((y-135)/80)**2<1))continue;
+    p.rect(x,y,i%6===0?6:3,3,i%3?C.grassDeep:C.grassSpark);
+  }
+  for(let i=0;i<86;i++){
+    const x=30+random()*940,y=96+random()*416;
     if(((x-825)/122)**2+((y-135)/82)**2<1)continue;
-    grass(c,X(x),Y(y),s*(.24+y/1900+random()*.18),i%4?'#7d9a5e65':'#f1edb572');
+    tuft(p,x,y,.55+(i%3)*.16,i%3?C.grassInk:C.grassSpark);
   }
-  // Garden boundary with shadows that all fall down and right.
-  const fenceY=Y(67);
-  for(let x=X(90);x<X(650);x+=40*s){
-    stroke(c,[[x+3*s,fenceY+12*s],[x+15*s,fenceY+28*s]],'#56734f29',5*s);
-    stroke(c,[[x+2*s,fenceY-18*s],[x+2*s,fenceY+13*s]],'#a19970',7*s);
-    stroke(c,[[x,fenceY-19*s],[x,fenceY+10*s]],'#e9ddba',6*s);
-    stroke(c,[[x-1.5*s,fenceY-16*s],[x-1.5*s,fenceY+8*s]],'#fff0cf',1.5*s);
+  // Cream fence, dark joinery, and square post caps.
+  p.rect(72,72,594,6,C.grassShade);
+  for(const y of [51,66]){
+    p.rect(72,y+3,594,6,C.wood);p.rect(72,y,594,6,C.cream);
+    p.rect(75,y,588,3,C.creamLight);
   }
-  for(const offset of [-8,5]){
-    stroke(c,[[X(74),fenceY+(offset+2)*s],[X(659),fenceY+(offset+2)*s]],'#a39d7366',6*s);
-    stroke(c,[[X(74),fenceY+offset*s],[X(659),fenceY+offset*s]],'#ece1c0',4*s);
+  for(let x=84;x<=654;x+=39){
+    p.rect(x+3,75,15,6,C.grassShade);p.rect(x,39,9,42,C.wood);
+    p.rect(x-3,39,9,39,C.cream);p.rect(x,36,3,3,C.creamLight);
+    p.rect(x-3,42,3,33,C.creamLight);p.rect(x+3,54,3,3,C.woodDark);p.rect(x+3,69,3,3,C.woodDark);
   }
-  // The pond stays inside the original server collision boundary.
-  const px=X(825),py=Y(135),rx=X(100),ry=Y(58);
-  glow(c,px+5*s,py+7*s,rx+19*s,ry+18*s,'#345d494a','#345d4900');
-  oval(c,px,py+3*s,rx+9*s,ry+9*s,'#8da477');
-  oval(c,px-1*s,py-2*s,rx+6*s,ry+6*s,'#c1c391');
-  oval(c,px,py,rx+2*s,ry+2*s,'#5e8970');
-  const water=c.createLinearGradient(px-rx,py-ry,px+rx*.6,py+ry);
-  water.addColorStop(0,'#3e827c');water.addColorStop(.48,'#69a596');water.addColorStop(1,'#a3c6aa');
-  oval(c,px,py,rx,ry,water);
-  c.save();c.beginPath();c.ellipse(px,py,rx,ry,0,0,TAU);c.clip();
-  glow(c,px-rx*.23,py-ry*.35,rx*.93,ry*.9,'#285d5b47','#285d5b00');
-  // Reflected bank, translucent cloud and shallow-water pebbles.
-  for(let i=0;i<10;i++)oval(c,px-rx+random()*rx*2,py-ry*.92,rx*.17,ry*(.15+random()*.16),'#315e5530');
-  oval(c,px+rx*.31,py+ry*.16,rx*.39,ry*.18,'#e9ecd22b');
-  for(let i=0;i<8;i++)oval(c,px+rx*(.1+random()*.7),py+ry*(.58+random()*.3),s*(2+random()*3),s*(1+random()*2),'#d6d2a826');
-  c.restore();
-  c.beginPath();c.ellipse(px,py+1*s,rx-1*s,ry-1*s,0,.2,Math.PI*.88);c.strokeStyle='#e0e5bd80';c.lineWidth=1.7*s;c.stroke();
-  for(const [x,y,k] of [[738,172,.95],[752,186,.7],[915,112,1.1],[904,91,.7],[932,147,.55]])stone(c,X(x),Y(y),s*k);
-  for(const [x,y,k] of [[785,154,.9],[864,116,.7],[842,175,.42]]){
-    oval(c,X(x)+2*s,Y(y)+3*s,13*s*k,6*s*k,'#275c4f36');
-    c.beginPath();c.ellipse(X(x),Y(y),13*s*k,6.5*s*k,-.1,.18,TAU-.2);c.lineTo(X(x),Y(y));c.closePath();c.fillStyle='#608b61';c.fill();
-    stroke(c,[[X(x)-8*s*k,Y(y)-2*s*k],[X(x)+4*s*k,Y(y)-2*s*k]],'#a9bc7990',s);
-  }
-  blossom(c,X(784),Y(150),6*s,'#f6dcd0');
-  for(let i=0;i<10;i++){
-    const x=X(895+random()*32),y=Y(164+random()*18),h=(18+random()*20)*s;
-    stroke(c,[[x,y],[x-4*s,y-h]],i%2?'#587b53':'#88a064',1.8*s);
-    leaf(c,x,y,h*.72,.5,'#729256');if(i%3===0)stroke(c,[[x-4*s,y-h],[x-5*s,y-h-5*s]],'#8b7650',3*s);
-  }
-  // Botanical edges stay behind the rabbits and away from the seat labels.
-  for(const [x,y,k] of [[-25,68,86],[29,-12,81],[990,8,80],[1025,215,48],[-30,382,46],[1024,479,49],[13,617,91],[998,625,98]])
-    shrub(c,X(x),Y(y),k*s,random,y>450);
-  for(const [x,y] of [[168,192],[290,361],[655,325],[786,455],[171,491],[488,116]]){
-    for(let i=0;i<9;i++){
-      const xx=X(x)+(random()-.5)*67*s,yy=Y(y)+(random()-.5)*30*s,k=.65+random()*.55;
-      grass(c,xx,yy+5*s,s*.43,'#829856');
-      stroke(c,[[xx,yy+6*s],[xx+1*s,yy-2*s]],'#7d9358',.8*s);
-      blossom(c,xx,yy-2*s,(2.2+random()*1.8)*s*k,i%4?'#f8edd0':'#dcaeac');
+  pond(p,c);
+  // Trees frame the clearing. Their solid leaf tiles never cover seat rows.
+  for(const [x,y,s] of [[-12,0,1.65],[64,-27,1.55],[153,-45,1.50],[245,-48,1.50],[338,-51,1.45],[426,-48,1.50],[518,-45,1.40],[615,-39,1.45],[704,-35,1.55],[797,-33,1.5],[892,-27,1.55],[987,-12,1.7],[-35,82,1.2],[1031,63,1.25],[-42,377,.9],[1042,405,1.05],[-21,592,1.1],[1016,592,1.25]])crown(p,x,y,s);
+  // A few handmade flower patches; the burrows and center remain uncluttered.
+  for(const [x,y,n] of [[171,191,4],[289,358,3],[655,321,4],[784,449,3],[173,486,3],[478,106,3]]){
+    for(let i=0;i<n;i++){
+      const xx=x+(random()-.5)*39,yy=y+(random()-.5)*18;
+      tuft(p,xx-6,yy+9,.55,C.grassInk);flower(p,xx,yy,i%3===0?C.pink:C.flower);
     }
   }
-  // Dappled canopy shadow, kept at the border instead of across the game.
-  for(let i=0;i<26;i++){
-    const right=i%2===0,x=right?W-random()*W*.11:random()*W*.07;
-    const y=random()*H;
-    glow(c,x,y,24*s+random()*29*s,12*s+random()*22*s,'#355c4317','#355c4300');
-  }
-  glow(c,X(295),Y(80),W*.6,H*.49,'#fff5cb35','#fff5cb00');
-  if(W>700){
-    const x=X(493),y=Y(117);
-    stroke(c,[[x+3*s,y+8*s],[x+17*s,y+47*s]],'#365c3426',7*s);
-    stroke(c,[[x,y+8*s],[x,y+42*s]],'#9f865c',5*s);
-    c.save();c.translate(x,y);c.rotate(-.035);
-    c.fillStyle='#887b4f';c.beginPath();c.roundRect(-71*s,-16*s,145*s,34*s,4*s);c.fill();
-    const wood=c.createLinearGradient(0,-18*s,0,16*s);wood.addColorStop(0,'#f3e8bd');wood.addColorStop(1,'#d7c597');
-    c.fillStyle=wood;c.beginPath();c.roundRect(-72*s,-18*s,145*s,33*s,4*s);c.fill();
-    stroke(c,[[-66*s,-15*s],[66*s,-15*s]],'#fff4d8',s);
-    oval(c,-64*s,-2*s,1.3*s,1.3*s,'#aa9566');oval(c,63*s,-2*s,1.3*s,1.3*s,'#aa9566');
-    c.font=`italic ${13*s}px Georgia, serif`;c.textAlign='center';c.fillStyle='#63704a';c.fillText('a little room to grow',0,4*s);c.restore();
+  // Low edge plants read as a planted border, not an opaque overlay.
+  for(const [x,y] of [[32,112],[956,195],[18,463],[971,481],[56,565],[935,582]]){
+    tuft(p,x,y,1.5,C.canopyMid);tuft(p,x+12,y+3,1,C.canopy);
   }
   c.restore();
 }
 
 export function paintForeground(c,W,H){
-  c.clearRect(0,0,W,H);c.save();
-  const s=clamp(Math.sqrt(W*H/600000),.72,1.3),random=createSeededRandom(1981);
-  // Grow inwards only as far as the unused map margin. Natural leaf outlines
-  // avoid a rectangular clipping edge, while every playable ground point stays clear.
-  for(const edge of [0,1]){
-    const x=edge?W*1.025:-W*.025,y=H*.97;
-    for(let i=0;i<12;i++){
-      const length=W*(.025+random()*.021),angle=(edge?-1:1)*(.18+random()*1.9);
-      leaf(c,x,y+(random()-.5)*44*s,length,angle,i%3?'#48744f':'#749456');
-    }
+  c.clearRect(0,0,W,H);c.save();c.imageSmoothingEnabled=false;
+  const p=pixelPainter(c,W,H),random=createSeededRandom(1981);
+  // Only the unused outer twelve world units get an overlapping foreground.
+  for(let x=6;x<1000;x+=18+Math.floor(random()*24)){
+    const h=3+Math.floor(random()*3)*3;
+    p.rect(x,600-h,3,h,C.canopy);p.rect(x+3,597,6,3,C.canopy);
+    p.rect(x+9,600-h+3,3,h-3,C.canopyMid);
   }
-  for(let i=0;i<15;i++){
-    const x=random()*W,y=H+random()*9*s;
-    grass(c,x,y,Math.min(s*(1.1+random()),H*.042/16),i%3?'#4c7650':'#789451');
+  for(const x of [0,991])for(const y of [554,575,591]){
+    p.rect(x,y,6,12,C.canopy);p.rect(x+3,y+6,6,9,C.canopyMid);
   }
   c.restore();
 }
 
 export function drawMeadowAtmosphere(c,W,H,time,{reducedMotion=false}={}){
-  const t=reducedMotion?0:time,px=W*.825,py=H*.225,rx=W*.1,ry=H*58/600;
-  c.save();c.beginPath();c.ellipse(px,py,rx*.96,ry*.94,0,0,TAU);c.clip();
-  for(let i=0;i<7;i++){
-    const phase=(t*.12+i*.173)%1;
-    const x=px+Math.sin(i*6.7)*rx*.57+Math.sin(t*.35+i)*rx*.025,y=py+(i/6-.5)*ry*1.35;
-    const length=rx*(.1+.16*Math.sin(phase*Math.PI));
-    c.beginPath();c.moveTo(x-length,y);c.quadraticCurveTo(x,y+1.6,x+length,y);
-    c.strokeStyle=`rgba(239,246,216,${.12+Math.sin(phase*Math.PI)*.15})`;c.lineWidth=1.2;c.stroke();
-  }
-  for(let i=0;i<2;i++){
-    const p=(t*.09+i*.5)%1;c.beginPath();c.ellipse(px-rx*.38,py+ry*.32,(8+p*17),(3+p*6),0,0,TAU);
-    c.strokeStyle=`rgba(230,241,204,${(1-p)*.22})`;c.lineWidth=.8;c.stroke();
-  }
-  c.restore();
-  if(reducedMotion)return;
-  // A handful of slow sunlit seeds, decorative only and never clickable.
-  c.save();
-  for(let i=0;i<7;i++){
-    const phase=(t*.035+i*.147)%1,x=W*(.17+i*.105)+Math.sin(t*.21+i*2.7)*12,y=H*(.18+phase*.53);
-    c.globalAlpha=Math.sin(phase*Math.PI)*.34;
-    oval(c,x,y,1.6,1.1,'#fff8d5',-.4);
+  c.save();const p=pixelPainter(c,W,H),frame=reducedMotion?0:Math.floor(time*2);
+  p.clip(pondRows(825,138,94,49));
+  for(const [i,x,y] of [[0,812,133],[1,867,144],[2,843,105],[3,761,139]]){
+    const phase=(frame+i*2)%6,shift=(phase<3?phase:6-phase)*3;
+    p.rect(x-shift,y,15+shift*2,3,phase===0||phase===5?C.waterLight:C.foam);
+    if(phase>1&&phase<5){p.rect(x-shift-3,y+3,3,3,C.waterLight);p.rect(x+15+shift,y+3,3,3,C.waterLight);}
   }
   c.restore();
 }

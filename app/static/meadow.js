@@ -1,14 +1,16 @@
-import { drawRabbit } from './rabbit-art.js?v=meadow13';
-import { createAutoLassoPuller } from './lasso-pull.js?v=meadow13';
-import { createSnapshotBuffer, toWorldPoint } from './meadow-model.js?v=meadow13';
-import { seatName, seatPalette, seatActivity, recentSeatResult, seatResultMessage } from './meadow-seats.js?v=meadow13';
+import { drawRabbit } from './rabbit-art.js?v=meadow14';
+import { createAutoLassoPuller } from './lasso-pull.js?v=meadow14';
+import { createSnapshotBuffer, toWorldPoint } from './meadow-model.js?v=meadow14';
+import { seatName, seatPalette, seatActivity, recentSeatResult, seatResultMessage } from './meadow-seats.js?v=meadow14';
 
-import { drawCast, drawRetractingCast, drawLandingDust } from './meadow-cast.js?v=meadow13';
-import { drawWildlifeCues } from './meadow-cues.js?v=meadow13';
-import { mountCaptureJournal } from './meadow-journal.js?v=meadow13';
-import { drawBurrows, drawBurrowRabbit } from './meadow-burrows.js?v=meadow13';
+import { drawCast, drawRetractingCast, drawLandingDust } from './meadow-cast.js?v=meadow14';
+import { drawWildlifeCues } from './meadow-cues.js?v=meadow14';
+import { mountCaptureJournal } from './meadow-journal.js?v=meadow14';
+import { drawBurrows, drawBurrowRabbit } from './meadow-burrows.js?v=meadow14';
 
-import { paintLandscape, paintForeground, drawMeadowAtmosphere, rabbitRenderScale } from './meadow-scene.js?v=meadow13';
+import { paintLandscape, paintForeground, drawMeadowAtmosphere, rabbitRenderScale } from './meadow-scene.js?v=meadow14';
+
+import { drawPixelWildlife, drawPixelCarrot } from './meadow-sprites.js?v=meadow14';
 
 const byId = id => document.getElementById(id);
 
@@ -383,6 +385,7 @@ function startMeadow() {
 
   function draw() {
     ctx.setTransform(canvas.width/W,0,0,canvas.height/H,0,0);
+    ctx.imageSmoothingEnabled=false;
     ctx.drawImage(background,0,0);
     const state=paused?frozen:buffer.sample(performance.now());
     if (!state) return;
@@ -442,8 +445,9 @@ function startMeadow() {
     W=nextW;H=nextH;
     background.width=W;background.height=H;paintLandscape(b,W,H);
     foreground.width=W;foreground.height=H;paintForeground(front,W,H);particles=[];
-    const dpr=Math.min(window.devicePixelRatio||1,1.5);
-    canvas.width=Math.round(rect.width*dpr);canvas.height=Math.round(rect.height*dpr);
+    // One backing pixel becomes two screen pixels, including on high-DPI displays.
+    // CSS and sprite drawing both use nearest-neighbour scaling. Mouse/world coordinates stay unchanged.
+    canvas.width=Math.max(1,Math.round(rect.width/2));canvas.height=Math.max(1,Math.round(rect.height/2));
     draw();
   }
   function canRun(){return connected&&!paused&&!document.hidden&&!overlayOpen();}
@@ -462,7 +466,7 @@ function ellipse(c, x, y, rx, ry, color, angle = 0) {
   c.beginPath(); c.ellipse(x, y, rx, ry, angle, 0, Math.PI * 2); c.fillStyle = color; c.fill();
 }
 function rounded(c, x, y, w, h, r, color) {
-  c.beginPath(); c.roundRect(x, y, w, h, r); c.fillStyle = color; c.fill();
+  c.fillStyle=color;c.fillRect(Math.round(x),Math.round(y),Math.round(w),Math.round(h));
 }
 function line(c, points, color, width = 2) {
   c.beginPath(); c.moveTo(...points[0]);
@@ -484,70 +488,8 @@ function polygon(c, points, color) {
   for (const point of points.slice(1)) c.lineTo(...point);
   c.closePath(); c.fillStyle=color; c.fill();
 }
-function drawWildlife(c, event, time) {
-  const warning = event.phase === 'warning';
-  const d = event.direction;
-  // All travel comes from server snapshots; wingbeats and footfalls are cosmetic.
-  ellipse(c,event.x,event.y+5,event.kind==='eagle'?37:42,9,'#54644f30');
-  if(warning){
-    c.save(); c.setLineDash([5,5]); c.strokeStyle='#aa8152'; c.lineWidth=1.5;
-    c.beginPath(); c.ellipse(event.x,event.y,48,20,0,0,Math.PI*2); c.stroke(); c.restore();
-  }
-  if(event.kind==='eagle'){
-    const lift = warning ? 52 : event.phase==='leaving' ? 44 : 29;
-    if(event.carrying) drawRabbit(c,{...event.carrying,x:event.x,y:event.y-lift+39,direction:d,moving:false},time,{scale:.65,shadow:false});
-    c.save(); c.translate(event.x,event.y-lift); c.scale(d,1);
-    const flap = Math.sin(time*8)*16;
-    polygon(c,[[-10,-4],[-34,-29-flap],[-52,-40-flap],[-46,-15],[-53,-13],[-42,-6],[-47,-3],[-29,5],[-7,9]],'#6c5540');
-    polygon(c,[[0,-5],[19,-34+flap],[33,-49+flap],[36,-27],[44,-24],[35,-12],[41,-10],[24,3],[5,11]],'#8e7050');
-    line(c,[[-35,-22-flap],[-23,-4],[-8,4]],'#a38a63',2);
-    line(c,[[29,-30+flap],[21,-11],[5,4]],'#b29a72',2);
-    polygon(c,[[-8,5],[-22,25],[-13,25],[-8,30],[2,19],[7,7]],'#624c38');
-    ellipse(c,0,4,12,18,'#8a6a46',-.3);
-    ellipse(c,9,-6,11,10,'#f5ecd7');
-    polygon(c,[[16,-7],[27,-2],[19,2],[17,6],[14,0]],'#d6a34f');
-    ellipse(c,12,-8,1.9,2,'#3f4940');
-    line(c,[[1,18],[0,27],[-4,29]],'#c29a4f',2);
-    line(c,[[8,17],[9,26],[13,29]],'#c29a4f',2);
-    c.restore();
-  } else {
-    const stride = warning ? 0 : Math.sin(time*12)*10;
-    c.save(); c.translate(event.x,event.y); c.scale(d,1);
-    polygon(c,[[-25,-24],[-49,-39],[-61,-37],[-48,-29],[-56,-25],[-34,-11],[-20,-10]],'#68777a');
-    line(c,[[-20,-16],[-24+stride,0],[-15+stride,1]],'#607074',7);
-    line(c,[[19,-18],[23-stride,0],[31-stride,1]],'#607074',7);
-    ellipse(c,-2,-21,32,16,'#829193');
-    polygon(c,[[6,-33],[20,-44],[28,-41],[37,-30],[48,-25],[43,-17],[29,-14],[20,-7],[12,-16]],'#8f9b9c');
-    polygon(c,[[18,-37],[17,-60],[30,-43]],'#68787c');
-    polygon(c,[[29,-36],[35,-57],[39,-35]],'#738387');
-    polygon(c,[[20,-42],[20,-52],[26,-43]],'#c2a59c');
-    polygon(c,[[33,-40],[35,-49],[37,-38]],'#c2a59c');
-    polygon(c,[[13,-26],[27,-20],[43,-23],[41,-16],[26,-12],[18,-6]],'#cdd1c5');
-    ellipse(c,44,-25,5,3.2,'#3d5053');
-    ellipse(c,31,-33,2.1,2.1,'#293e42');
-    line(c,[[29,-38],[34,-36]],'#5b7074',1.7);
-    line(c,[[-13,-14],[-12-stride,1],[-3-stride,2]],'#94a09c',7);
-    line(c,[[13,-13],[13+stride,1],[22+stride,2]],'#a4afa7',7);
-    c.restore();
-    if(event.carrying) drawRabbit(c,{...event.carrying,x:event.x+43*d,y:event.y+9,direction:-d,moving:false},time,{scale:.53,shadow:false});
-  }
-  if(warning){
-    rounded(c,event.x-12,event.y-(event.kind==='eagle'?92:84),24,24,12,'#fff3d7');
-    c.font='bold 16px Georgia, serif';c.textAlign='center';c.fillStyle='#9b774b';
-    c.fillText('!',event.x,event.y-(event.kind==='eagle'?75:67));
-  }
-}
-function drawCarrot(c, x, y, size) {
-  c.save(); c.translate(x, y); c.rotate(-0.4); c.scale(size, size);
-  ellipse(c, 0, 4, 12, 4, '#819b6333');
-  line(c, [[0, -9], [-8, -21]], '#658849', 4);
-  line(c, [[0, -9], [1, -24]], '#89a658', 4);
-  line(c, [[0, -9], [8, -19]], '#6f954c', 4);
-  c.beginPath(); c.moveTo(-6, -12); c.quadraticCurveTo(0, -16, 6, -12); c.quadraticCurveTo(7, -3, 0, 10); c.quadraticCurveTo(-8, -4, -6, -12); c.fillStyle = '#e9a05f'; c.fill();
-  line(c, [[-5, -5], [-1, -4]], '#c57e47', 1);
-  line(c, [[1, 0], [4, -1]], '#c57e47', 1);
-  c.restore();
-}
+function drawWildlife(c,event,time){drawPixelWildlife(c,event,time);}
+function drawCarrot(c,x,y,size){drawPixelCarrot(c,x,y,size);}
 function drawLasso(c,x,y) {
   c.save();c.translate(x,y);c.rotate(-.3);
   c.beginPath();c.ellipse(0,-7,16,21,0,0,Math.PI*2);c.strokeStyle='#9d753e';c.lineWidth=3;c.stroke();
@@ -575,7 +517,7 @@ function drawRopeLoop(c,x,y,own,pulling,seatId,landAge=1,scale=1) {
   c.strokeStyle=colors[1];c.lineWidth=1.2;c.stroke();
   ellipse(c,x+20,y-15,3,2,colors[0]);
   if(seatId!=null){
-    ellipse(c,x+30,y-28,9,9,colors[0]);c.fillStyle='#fffef4';c.font='bold 10px Arial, sans-serif';c.textAlign='center';c.fillText(String(seatId),x+30,y-24.5);
+    ellipse(c,x+30,y-28,9,9,colors[0]);c.fillStyle='#fffef4';c.font='bold 12px monospace';c.textAlign='center';c.fillText(String(seatId),x+30,y-24.5);
   }
   c.restore();
 }
@@ -594,6 +536,7 @@ function drawSeat(c,seat,rope,own,time,size,result) {
     // A little cowboy behind the basket leans and draws back both hands.
     rounded(c,-12,-28,24,22,7,colors[0]);
     ellipse(c,0,-34,8,9,'#e4bc8e');
+    c.fillStyle='#394735';c.fillRect(-4,-36,2,2);c.fillRect(2,-36,2,2);
     rounded(c,-9,-47,18,10,4,colors[0]);
     ellipse(c,0,-39,17,3,colors[0]);
     line(c,[[-10,-22],[-21,-15-tug],[-8,-10-tug]],colors[0],5);
@@ -614,7 +557,7 @@ function drawSeat(c,seat,rope,own,time,size,result) {
   const activity=result&&!rope?{caught:'HOME!',stolen:'SNATCHED',escaped:'FREE',cancelled:'LET GO',missed:'MISSED'}[result.outcome]
     :!seat.occupied?'OPEN':!seat.online?'AWAY':rope?(casting?'CAST':`${Math.round(rope.progress*100)}%`):'READY';
   const label=`${own?'YOU':String(seat.id).padStart(2,'0')} · ${activity}`;
-  c.save();c.font='bold 10px Arial, sans-serif';c.textAlign='center';
+  c.save();c.font='bold 12px monospace';c.textAlign='center';
   const width=c.measureText(label).width+14,y=seat.y+size*24;
   rounded(c,seat.x-width/2,y,width,17,8,own?'#fffbeb':'#f7fbe4df');
   c.fillStyle=seat.occupied?colors[0]:'#849370';c.fillText(label,seat.x,y+11.5);
@@ -630,7 +573,7 @@ function drawBasket(c,x,y,count,active,label='SHARED BASKET') {
   for(let row=0;row<4;row++)line(c,[[-31+row*2,-10+row*5],[31-row*2,-10+row*5]],row%2?'#cea771':'#987243',2.5);
   for(let col=-24;col<=24;col+=8)line(c,[[col,-13],[col*.83,9]],'#d7b781',1.1);
   c.beginPath();c.ellipse(0,-15,34,13,0,0,Math.PI);c.strokeStyle='#ddba7d';c.lineWidth=4;c.stroke();
-  rounded(c,-15,-7,30,17,4,'#f4e8c9');c.fillStyle='#725735';c.font='11px Georgia, serif';c.textAlign='center';c.fillText(String(count),0,5);
+  rounded(c,-15,-7,30,17,4,'#f4e8c9');c.fillStyle='#725735';c.font='bold 12px monospace';c.textAlign='center';c.fillText(String(count),0,5);
   if(label){c.font='8px Arial, sans-serif';c.fillStyle='#657747';c.fillText(label,0,26);}
   c.restore();
 }

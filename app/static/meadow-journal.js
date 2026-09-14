@@ -1,4 +1,4 @@
-import { drawRabbit } from './rabbit-art.js?v=meadow13';
+import { drawRabbit } from './rabbit-art.js?v=meadow14';
 
 export const JOURNAL_COATS = Object.freeze([
   {coat:'white', name:'Snow white', note:'A little cloud against the green.', tint:'#e5e8d6'},

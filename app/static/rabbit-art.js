@@ -1,122 +1,63 @@
-import { getRabbitPose } from './rabbit-pose.js?v=meadow13';
+import { getRabbitPose } from './rabbit-pose.js?v=meadow14';
+import { makePixelSprite, blitSprite } from './pixel-sprite.js?v=meadow14';
 
-// Painted once per coat, then articulated at runtime. No image downloads or
-// per-frame fur gradients: the small sprite atlas is shared by all rabbits.
-const palettes = {
-  white: ['#eeeae0','#ffffff','#b5b5a8','#fcf9ef'],
-  cream: ['#dcc39a','#f6e7c9','#a7906d','#f3e4c8'],
-  caramel: ['#b37c48','#d9ac76','#795537','#eed3aa'],
-  chocolate: ['#694939','#97735a','#413329','#c4a58b'],
-  silver: ['#a3acae','#d4d9d6','#737e80','#e0e2d9'],
-  charcoal: ['#454d51','#737d7e','#293237','#afb7b3'],
-  ginger: ['#c08651','#e6b47c','#875732','#f2d8b3'],
-  spotted: ['#eae1cf','#fff9e9','#ac9e86','#fff2da'],
+// Each coat has a small set of hand-placed pixel poses. The server still owns
+// coat identity, maturity and position; the browser only draws the sprite.
+const palettes={
+  white:['#eee9d4','#fffbea','#b7bea9','#829386'],
+  cream:['#e4ca95','#fff0c4','#b79566','#8a7557'],
+  caramel:['#c89457','#edc886','#99633d','#73543c'],
+  chocolate:['#876046','#b58a60','#624739','#463b32'],
+  silver:['#a9bbb5','#dfdfca','#7d9491','#516b6b'],
+  charcoal:['#60716f','#95a19a','#455956','#314842'],
+  ginger:['#d69751','#f5c47f','#a66b3c','#754a35'],
+  spotted:['#eee4c9','#fff8df','#b8b493','#7d8267'],
 };
-const atlas = new Map();
-const oval = (c,x,y,rx,ry,fill,rotation=0) => {
-  c.beginPath(); c.ellipse(x,y,rx,ry,rotation,0,Math.PI*2); c.fillStyle=fill; c.fill();
-};
-function stroke(c,points,color,width=1){
-  c.beginPath();c.moveTo(...points[0]);for(const p of points.slice(1))c.lineTo(...p);
-  c.strokeStyle=color;c.lineWidth=width;c.lineCap='round';c.lineJoin='round';c.stroke();
-}
-function paintPart(paint) {
-  const canvas=document.createElement('canvas');canvas.width=192;canvas.height=192;
-  const c=canvas.getContext('2d');c.scale(2,2);c.translate(48,64);paint(c);
-  return canvas;
-}
-function coatAtlas(name) {
-  if(atlas.has(name))return atlas.get(name);
-  const [base,light,dark,belly]=palettes[name] || palettes.white;
-  const shade=(c,x,y,r)=>{const g=c.createRadialGradient(x,y,1,x+3,y+6,r);g.addColorStop(0,light);g.addColorStop(.55,base);g.addColorStop(1,dark);return g;};
-  const body=paintPart(c=>{
-    c.beginPath();c.moveTo(-29,-2);c.bezierCurveTo(-38,-14,-31,-33,-17,-33);
-    c.bezierCurveTo(-2,-34,4,-23,10,-17);c.bezierCurveTo(18,-6,9,2,-1,3);
-    c.bezierCurveTo(-11,4,-23,4,-29,-2);c.fillStyle=shade(c,-17,-25,38);c.fill();
-    oval(c,-3,-3,13,4,belly,-.12);
-    if(name==='spotted'){
-      oval(c,-17,-24,10,8,'#927255',-.3);oval(c,3,-12,6,8,'#b18a65',-.5);
+const atlas=new Map();
+function frameSprite(coat,frame,blink){
+  const key=`${coat}:${frame}:${blink}`;if(atlas.has(key))return atlas.get(key);
+  const [base,light,shade,deep]=palettes[coat]||palettes.white;
+  const palette={base,light,shade,deep,outline:'#384538',ear:'#cf9690',eye:'#263730',spark:'#fff9df',nose:'#b87675',patch:'#99734e'};
+  const sprite=makePixelSprite(38,37,palette,({rect,rows})=>{
+    const crouch=frame===1||frame===4?1:0,stretch=frame===2?2:0;
+    rect(7,31,7,2,'deep');rect(23+stretch,30,5,2,'shade');
+    rect(3,25+crouch,4,4,'shade');rect(2,25+crouch,3,3,'light');
+    rows(0,20+crouch,[[10,7],[8,12],[6,16],[5,19],[5,20],[5,20],[5,19],[6,18],[7,16],[8,14]],'base');
+    rect(9,21+crouch,8,2,'light');rect(7,23+crouch,7,2,'light');
+    rect(6,27+crouch,3,2,'shade');rect(8,29+crouch,12,2,'shade');rect(14,27+crouch,8,2,'light');
+    rect(9,26+crouch,2,1,'shade');rect(8,27+crouch,1,2,'shade');
+    const ear=frame===3?1:0,head=crouch;
+    rows(0,4+head+ear,[[19,2],[18,3],[18,3],[18,3],[18,3],[19,2],[19,3],[19,3],[20,2],[20,2],[20,3],[20,3],[21,2]],'shade');
+    rect(19,7+head+ear,1,5,'ear');
+    rows(0,3+head,[[25,2],[24,3],[24,3],[24,3],[24,3],[24,3],[24,3],[24,3],[24,3],[24,3],[23,3],[23,3],[23,3],[22,4]],'base');
+    rect(25,5+head,1,7,'ear');rect(24,12+head,1,3,'ear');rect(24,4+head,1,4,'light');
+    rows(stretch,16+head,[[21,5],[19,9],[18,11],[18,12],[18,13],[19,13],[19,13],[20,11],[21,8],[22,6]],'base');
+    rect(21+stretch,17+head,5,2,'light');rect(29+stretch,21+head,3,2,'light');
+    rect(23+stretch,24+head,5,2,'shade');
+    if(coat==='spotted'){
+      rect(8,23+crouch,5,4,'patch');rect(10,22+crouch,3,1,'patch');
+      rect(19+stretch,18+head,3,4,'patch');rect(24,4+head,2,5,'patch');
     }
-    // Short strokes follow the flank instead of outlining a flat white oval.
-    c.globalAlpha=.23;
-    for(let i=0;i<18;i++){
-      const x=-26+(i%6)*5,y=-24+Math.floor(i/6)*7;
-      stroke(c,[[x,y],[x+2,y-2],[x+4,y-2.5]],i%3?light:dark,.65);
-    }
-    c.globalAlpha=1;
+    if(blink)rect(27+stretch,20+head,2,1,'eye');
+    else{rect(27+stretch,19+head,2,3,'eye');rect(27+stretch,19+head,1,1,'spark');}
+    rect(32+stretch,22+head,1,1,'nose');rect(30+stretch,24+head,2,1,'deep');
+    const reach=frame===2?3:frame===3?-2:0;
+    rect(10-reach,30+crouch,7,2,'base');rect(12-reach,32,6,1,'light');
+    rect(23+reach,27+crouch,3,5-crouch,'base');rect(23+reach,32,6,1,'light');
+    rect(10-reach,32,2,1,'shade');
   });
-  const haunch=paintPart(c=>{
-    oval(c,0,0,11,13,shade(c,-5,-6,22),-.3);
-    c.beginPath();c.ellipse(0,1,9,11,-.3,-1.4,1.1);c.strokeStyle=dark;c.globalAlpha=.28;c.lineWidth=.65;c.stroke();
-  });
-  const head=paintPart(c=>{
-    c.beginPath();c.moveTo(-7,8);c.bezierCurveTo(-14,0,-10,-12,-3,-13);
-    c.bezierCurveTo(5,-15,10,-8,11,-4);c.bezierCurveTo(13,-1,20,-1,20,4);
-    c.bezierCurveTo(20,9,9,12,1,11);c.closePath();c.fillStyle=shade(c,-2,-8,28);c.fill();
-    oval(c,12,6,8,4.6,belly,-.12);oval(c,5,6,7,5,base,.2);
-    if(name==='spotted')oval(c,-5,-6,5,6,'#9e7855',-.4);
-    c.globalAlpha=.35;
-    for(let i=0;i<5;i++)stroke(c,[[-5+i*2,4],[-3+i*2,6]],light,.7);
-    c.globalAlpha=1;
-  });
-  const ear=paintPart(c=>{
-    c.beginPath();c.moveTo(-3,2);c.bezierCurveTo(-8,-10,-7,-32,-2,-38);
-    c.bezierCurveTo(4,-39,7,-22,4,-8);c.quadraticCurveTo(4,1,1,3);c.closePath();
-    c.fillStyle=name==='spotted'?'#967659':shade(c,-2,-24,32);c.fill();
-    c.beginPath();c.moveTo(-1,-3);c.bezierCurveTo(-5,-13,-4,-29,-2,-33);
-    c.bezierCurveTo(1,-33,3,-19,1,-7);c.closePath();c.fillStyle='#bd9c96';c.fill();
-    stroke(c,[[-1,-29],[0,-20],[-.5,-9]],'#e2bdb1',.9);
-    stroke(c,[[-4,-32],[-5,-22],[-4,-14]],light,.7);
-  });
-  const tail=paintPart(c=>{
-    oval(c,0,0,7,8,shade(c,-2,-3,14),-.3);
-    c.globalAlpha=.7;for(let i=0;i<8;i++){const a=i*Math.PI/4;stroke(c,[[Math.cos(a)*3,Math.sin(a)*4],[Math.cos(a)*6,Math.sin(a)*7]],light,.8);}
-  });
-  const result={body,haunch,head,ear,tail,base,light,dark,belly};atlas.set(name,result);return result;
+  atlas.set(key,sprite);return sprite;
 }
-function part(c,sprite){c.drawImage(sprite,-48,-64,96,96);}
-function leg(c,x,y,reach,colour,foot,far=false){
-  const kneeX=x+reach*5,footX=x+reach*12+(far?1:0),footY=2-Math.max(0,-reach)*6;
-  stroke(c,[[x,y],[kneeX,y+6],[footX,footY-1]],colour,far?3:4);
-  oval(c,footX+3,footY,6,2.4,foot,-reach*.13);
-  if(!far){stroke(c,[[footX+6,footY-1],[footX+7,footY]],colour,.55);}
-}
-
-export function drawRabbit(c,rabbit,time,options={}) {
-  const coat=coatAtlas(rabbit.coat || 'white');
-  const pose=getRabbitPose(rabbit,time);
-  const size=(rabbit.adult? .94 : .56+Math.min((rabbit.age||0)/30,1)*.18)*(options.scale??rabbit.renderScale??1);
-  const d=rabbit.direction||1;
+export function drawRabbit(c,rabbit,time,options={}){
+  const pose=getRabbitPose(rabbit,time),moving=(rabbit.motionAmount??(rabbit.moving?1:0))>.12;
+  const frame=moving?Math.floor((rabbit.hopProgress||0)*4)+1:0;
+  const blink=(time+rabbit.id*.73)%5.1<.16;
+  const size=(rabbit.adult ? .94 : .56+Math.min((rabbit.age||0)/30,1)*.18)*(options.scale??rabbit.renderScale??1);
+  const lift=Math.round(pose.lift/2)*2*size;
   if(options.shadow!==false){
-    c.save();c.globalAlpha=.15-pose.lift*.002;
-    oval(c,rabbit.x+9*size,rabbit.y+6*size,29*size,7*size,'#365540',.15);
-    c.globalAlpha=.23-pose.lift*.005;
-    oval(c,rabbit.x,rabbit.y+2*size,18*size,4*size,'#3a5540');c.restore();
+    c.save();c.globalAlpha*=.23;c.fillStyle='#304a37';
+    const x=Math.round(rabbit.x),y=Math.round(rabbit.y),w=Math.round(41*size);
+    c.fillRect(x-w/2+3,y+2,w,4);c.fillRect(x-w/2+8,y+6,w-10,2);c.restore();
   }
-  c.save();c.translate(rabbit.x,rabbit.y-pose.lift*size);c.scale(d*size,size);c.rotate(pose.pitch);
-  leg(c,-20,-10,pose.hindReach,coat.dark,coat.base,true);
-  leg(c,9,-13,pose.foreReach,coat.dark,coat.base,true);
-  c.save();c.translate(-31,-13);c.rotate(pose.tailTilt);part(c,coat.tail);c.restore();
-  c.save();c.scale(pose.stretchX,pose.stretchY*pose.breath);part(c,coat.body);c.restore();
-  leg(c,-16,-7,pose.hindReach*.9,coat.base,coat.belly);
-  c.save();c.translate(-18,-11);c.rotate(pose.hindReach*.17);part(c,coat.haunch);c.restore();
-  leg(c,11,-13,pose.foreReach*.85,coat.base,coat.belly);
-  c.save();c.translate(13, -25+pose.headBob);c.rotate(-pose.pitch*.55);
-  c.save();c.translate(-2,-9);c.rotate(-.30+pose.earTilt);c.globalAlpha=.88;part(c,coat.ear);c.restore();
-  c.save();c.translate(4,-10);c.rotate(.03+pose.earTilt*.72);part(c,coat.ear);c.restore();
-  part(c,coat.head);
-  const blink=(time+rabbit.id*.73)%5.1<.13;
-  if(blink)stroke(c,[[4,-3],[8,-3]],'#293332',1.4);
-  else{
-    oval(c,6,-3,2.9,3.3,coat.dark,-.15);
-    oval(c,6.4,-3.2,2.1,2.6,'#202b29',-.15);
-    oval(c,7.1,-4.4,.8,.95,'#fbfcf4');
-  }
-  const noseY=2+pose.noseTwitch;
-  oval(c,19,noseY,1.9,1.45,'#bc9187',.18);
-  stroke(c,[[18.5,noseY+1],[18,5],[15.5,6]],'#8d8174',.65);
-  c.globalAlpha=.55;
-  stroke(c,[[13,5],[28,1]],coat.belly,.55);stroke(c,[[13,6],[29,6]],coat.belly,.55);
-  stroke(c,[[13,7],[26,10]],coat.dark,.45);c.globalAlpha=1;
-  c.restore();c.restore();
+  blitSprite(c,frameSprite(rabbit.coat||'white',frame,blink),rabbit.x,rabbit.y-lift,2.6*size,rabbit.direction||1,18,33);
 }
