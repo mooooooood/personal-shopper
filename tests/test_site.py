@@ -3,6 +3,7 @@ import os
 import tempfile
 import importlib
 import unittest
+from urllib.parse import urlparse, parse_qs
 import xml.etree.ElementTree as ET
 from unittest.mock import patch
 from fastapi.testclient import TestClient
@@ -28,6 +29,8 @@ class SiteTests(unittest.TestCase):
             detail = self.client.get('/products/' + product['slug'])
             self.assertEqual(detail.status_code, 200)
             self.assertIn(product['name'], html.unescape(detail.text))
+            self.assertIn(html.escape(main.SITE['contact']['whatsapp_url'], quote=True), detail.text)
+            self.assertNotIn('/#request', detail.text)
 
     def test_missing_pages_and_private_files(self):
         for path in ['/products/missing', '/missing', '/.env', '/data/site.json', '/data/site.sqlite3', '/docs', '/static/missing.css']:
@@ -40,19 +43,24 @@ class SiteTests(unittest.TestCase):
         self.assertIn('max-age', response.headers['cache-control'])
         self.assertIn("frame-ancestors 'none'", self.client.get('/').headers['content-security-policy'])
 
-    def test_sourcing_page_and_script(self):
+    def test_direct_whatsapp_contact_replaces_sourcing_form(self):
         page = self.client.get('/').text
         self.assertIn('lang="en"', page)
         self.assertIn('Something else?', page)
         self.assertIn('I run this', page)
         self.assertIn('Hello from China.', page)
+        self.assertIn('Message me on WhatsApp', page)
+        self.assertIn('+86 15927146828', page)
         self.assertNotIn('Tell us what', page)
-        self.assertIn('id="request-message"', page)
-        self.assertNotIn('adventure.js', page)
-        self.assertNotIn('showroom.js', page)
-        response = self.client.get('/static/sourcing.js')
-        self.assertEqual(response.status_code, 200)
-        self.assertIn('javascript', response.headers['content-type'])
+        for removed in ['request-message', 'prepare-request', '<textarea', '<input', '<form', '/static/sourcing.js', 'open-journal', 'open-help', 'journal.css']:
+            self.assertNotIn(removed, page)
+        self.assertEqual(page.count('<dialog '), 1)
+        self.assertIn(html.escape(main.SITE['contact']['whatsapp_url'], quote=True), page)
+        url = urlparse(main.SITE['contact']['whatsapp_url'])
+        self.assertEqual((url.scheme, url.netloc, url.path), ('https', 'wa.me', '/8615927146828'))
+        message = parse_qs(url.query)['text'][0]
+        self.assertIn('China', message)
+        self.assertIn('target="_blank" rel="noopener noreferrer"', page)
 
     def test_meadow_assets_and_accessible_controls(self):
         page = self.client.get('/').text
@@ -63,10 +71,11 @@ class SiteTests(unittest.TestCase):
             response = self.client.get('/static/' + asset)
             self.assertEqual(response.status_code, 200, asset)
             self.assertIn(media_type, response.headers['content-type'], asset)
-        for control in ['tool-watch', 'tool-carrot', 'tool-net', 'pause-meadow', 'release-rabbit', 'reset-meadow', 'open-about', 'close-about', 'open-help', 'close-help']:
+        for control in ['tool-watch', 'tool-carrot', 'tool-net', 'pause-meadow', 'release-rabbit', 'reset-meadow', 'open-about', 'close-about']:
             self.assertIn('id="' + control + '"', page)
         self.assertIn('id="about-dialog"', page)
-        self.assertIn('id="help-dialog"', page)
+        self.assertIn('id="meadow-help"', page)
+        self.assertNotIn('id="help-dialog"', page)
         self.assertNotIn('href="/static/style.css', page)
 
     def test_home_preserves_and_escapes_personal_intro(self):

@@ -7,8 +7,7 @@
   <meta name="description" content="{{ site.description }}">
   <meta name="theme-color" content="#a5b574">
   {% if base_url %}<link rel="canonical" href="{{ base_url }}/">{% endif %}
-  <link rel="stylesheet" href="/static/meadow.css?v=meadow14">
-  <link rel="stylesheet" href="/static/journal.css?v=meadow14">
+  <link rel="stylesheet" href="/static/meadow.css?v=meadow15">
 </head>
 <body>
   <main id="main" class="meadow-world" aria-label="The rabbit meadow">
@@ -36,9 +35,7 @@
         <span id="wildlife-status" class="wildlife-status" role="status" aria-live="polite" aria-atomic="true" data-kind="calm">A quiet moment in the meadow</span>
       </section>
       <div class="hud-links">
-        <button class="about-button glass" type="button" id="open-about" aria-haspopup="dialog" aria-controls="about-dialog"><span>About &amp; contact</span><span class="about-arrow" aria-hidden="true">↗</span></button>
-        <button class="journal-button glass" type="button" id="open-journal" aria-haspopup="dialog" aria-controls="journal-dialog"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 3h15a1 1 0 0 1 1 1v16H6a3 3 0 0 1-3-3V4a1 1 0 0 1 1-1Z"/><path d="M7 3v14m-4 0h17M11 7h5m-5 4h4"/></svg><span>Field journal</span><span data-journal-count>0/8</span></button>
-        <button class="help-button glass" type="button" id="open-help" aria-label="How to play" aria-haspopup="dialog" aria-controls="help-dialog">?</button>
+        <button class="about-button glass" type="button" id="open-about" aria-haspopup="dialog" aria-controls="about-dialog" aria-expanded="false"><span class="about-label">About &amp; contact</span><span class="about-hint" aria-hidden="true">WHATSAPP <span>↗</span></span></button>
       </div>
     </div>
 
@@ -63,52 +60,32 @@
         </div>
       </div>
     </div>
-    <noscript><section class="no-script-note"><h2>A little JavaScript brings the meadow to life.</h2><p>{{ site.about }}</p>{% if site.contact.email %}<a href="{{ site.contact.email_url }}">{{ site.contact.email }}</a>{% endif %}{% if site.contact.phone %}<a href="{{ site.contact.phone_url }}">{{ site.contact.phone }}</a>{% endif %}{% if site.contact.wechat %}<p>WeChat: {{ site.contact.wechat }}</p>{% endif %}{% if site.contact.address %}<p>{{ site.contact.address }}</p>{% endif %}{% if site.contact.hours %}<p>{{ site.contact.hours }}</p>{% endif %}</section></noscript>
+    <p id="meadow-help" class="visually-hidden">Choose Watch, Carrot or Lasso, then tap the meadow. A landed lasso reels in automatically. Use the arrow keys to aim, W / C / N to choose a tool, and Enter or Space to use it.</p>
+    <noscript><section class="no-script-note"><h2>Your personal shopper in China.</h2><p>{{ site.about }}</p><a href="{{ site.contact.whatsapp_url }}" target="_blank" rel="noopener noreferrer">Message me on WhatsApp · {{ site.contact.whatsapp }}</a></section></noscript>
   </main>
 
   <dialog id="about-dialog" class="meadow-dialog" aria-labelledby="about-title">
     <div class="dialog-header"><span>{{ site.brand }} <small>ONE PERSON. BASED IN CHINA.</small></span><button id="close-about" type="button" class="close-dialog" aria-label="Close about and contact">×</button></div>
     <div class="dialog-content">
       <section id="about" class="personal-note">
-        <p class="eyebrow">A NOTE FROM MY SIDE OF THE WORLD</p>
+        <p class="eyebrow">YOUR PERSONAL SHOPPER IN CHINA</p>
         <h2 id="about-title">Hello from China.</h2>
+        <p class="contact-intro">Looking for something from China? I can help you find it, buy it and arrange international shipping.</p>
+      </section>
+
+      <section id="contact" class="whatsapp-card" aria-labelledby="contact-title">
+        <h3 id="contact-title">Let’s talk on WhatsApp.</h3>
+        <p>Send me a product link, a photo or an idea. Tell me the quantity and delivery country, and we’ll take it from there.</p>
+        <a class="whatsapp-cta" href="{{ site.contact.whatsapp_url }}" target="_blank" rel="noopener noreferrer"><span>Message me on WhatsApp</span><span aria-hidden="true">↗</span></a>
+        <p class="whatsapp-number">{{ site.contact.whatsapp }}</p>
+        <p class="whatsapp-note">You’ll be talking directly with me.</p>
+      </section>
+
+      <section class="personal-story" aria-label="About my business">
         <p class="letter-body">{{ site.about }}</p>
-        <p>Tell me what you need, how many, and where it should go. I’ll discuss the product, my margin or fee, and the available shipping options with you before you decide.</p>
+        <p class="letter-body">I welcome enquiries from around the world. Before you decide, I’ll confirm the product details, my price or service fee, and the shipping options for your destination.</p>
         <p class="letter-signature">One person. A direct conversation.</p>
       </section>
-
-      <section id="contact" class="contact-note" aria-labelledby="contact-title">
-        <p class="eyebrow">WHEN YOU’RE READY</p>
-        <h3 id="contact-title">A link. A photo. An idea.</h3>
-        <p>Personal finds, business orders and unusual requests. I welcome enquiries worldwide; shipping is checked for each item and destination.</p>
-        <div class="contact-list">
-          {% if site.contact.email %}<a href="{{ site.contact.email_url }}"><span>Email</span><strong>{{ site.contact.email }}</strong><b aria-hidden="true">↗</b></a>{% endif %}
-          {% if site.contact.phone %}<a href="{{ site.contact.phone_url }}"><span>Phone</span><strong>{{ site.contact.phone }}</strong><b aria-hidden="true">↗</b></a>{% endif %}
-          {% if site.contact.wechat %}<div><span>WeChat</span><strong>{{ site.contact.wechat }}</strong></div>{% endif %}
-          {% if site.contact.address %}<div><span>Address</span><strong>{{ site.contact.address }}</strong></div>{% endif %}
-          {% if not site.contact.email and not site.contact.phone and not site.contact.wechat %}<div><span>Contact</span><strong>Contact details coming soon</strong></div>{% endif %}
-          {% if site.contact.hours %}<p class="hours">{{ site.contact.hours }}</p>{% endif %}
-        </div>
-      </section>
-
-      <details class="business-fold" id="request">
-        <summary><span>Prepare a sourcing enquiry</span><span class="fold-plus" aria-hidden="true">＋</span></summary>
-        <div class="fold-content">
-          <p class="fold-intro">Turn a few details into a message you can edit and send. Have a photo? Mention it here and attach it when you get in touch.</p>
-          <div class="request-form">
-            <label for="item">What are you looking for? <span>Required</span></label>
-            <textarea id="item" rows="3" placeholder="Product name, specifications, or a description of what you want" required></textarea>
-            <label for="link">Product or reference link <span>Optional</span></label>
-            <input id="link" type="url" placeholder="https://…">
-            <div class="form-row"><div><label for="quantity">Quantity</label><input id="quantity" maxlength="80" placeholder="e.g. 1 piece or 100 units"></div><div><label for="country">Delivery country <span>Required</span></label><input id="country" maxlength="100" required placeholder="Where should it go?"></div></div>
-            <label for="notes">Budget &amp; other details <span>Optional</span></label>
-            <textarea id="notes" rows="2" placeholder="Target budget, timeline, variations or business requirements"></textarea>
-            <button class="button" type="button" id="prepare-request">Prepare my enquiry ↗</button>
-            <p id="request-status" role="status" class="status">This prepares a message for you to send. Nothing is submitted automatically.</p>
-            <div id="request-result" hidden><label for="request-message">Your message — ready to edit and send</label><textarea id="request-message" rows="9"></textarea><div class="inquiry-actions"><button type="button" id="copy-request">Copy message</button>{% if site.contact.email %}<a id="email-request" data-email="{{ site.contact.email }}" href="{{ site.contact.email_url }}">Open email ↗</a>{% endif %}<a href="#contact">Contact details ↑</a></div></div>
-          </div>
-        </div>
-      </details>
 
       <details class="business-fold" id="categories">
         <summary><span>What I can source</span><span class="fold-plus" aria-hidden="true">＋</span></summary>
@@ -116,7 +93,7 @@
           <p class="fold-intro">These are examples, not limits. If it’s available in China, send me the details and I’ll explore the possibilities with you.</p>
           <div class="category-grid">
             {% for product in site.products %}<a class="category-card" href="/products/{{ product.slug }}"><span class="category-no">{{ product.label }}</span>{% if product.image %}<img src="{{ product.image }}" alt="{{ product.name }}" loading="lazy" width="360" height="220">{% endif %}<h3>{{ product.name }} <span aria-hidden="true">↗</span></h3><p>{{ product.summary }}</p></a>{% endfor %}
-            <a class="category-card open-category" href="#request"><span class="category-no">＋</span><h3>Something else? <span aria-hidden="true">↗</span></h3><p>A link, a reference or a description is enough to start.</p></a>
+            <a class="category-card open-category" href="{{ site.contact.whatsapp_url }}" target="_blank" rel="noopener noreferrer"><span class="category-no">＋</span><h3>Something else? <span aria-hidden="true">↗</span></h3><p>A link, a reference or a description is enough to start.</p></a>
           </div>
         </div>
       </details>
@@ -124,30 +101,6 @@
     </div>
   </dialog>
 
-  <dialog id="help-dialog" class="meadow-dialog help-dialog" aria-labelledby="help-title">
-    <div class="dialog-header"><span>THE RABBIT MEADOW</span><button id="close-help" type="button" class="close-dialog" aria-label="Close how to play">×</button></div>
-    <div class="dialog-content">
-      <p class="eyebrow">MAKE YOURSELF AT HOME</p>
-      <h2 id="help-title">Small lives.<br>Simple pleasures.</h2>
-      <div id="meadow-help">
-        <p>Everyone visits the same little world. Rabbits, carrots and the basket are shared. Grown-up rabbits meet, share a heart and welcome a baby with a randomly chosen coat: snowy white, caramel, charcoal, spotted and more.</p>
-        <p><strong>Eight seats, one meadow.</strong> Join a numbered seat at the edge of the grass and watch other players cast and reel in their own ropes. Your seat has a matching colour and a basket to aim for. Open the online count to see each seat’s activity. These are real visitors, with no computer players filling empty seats.</p>
-        <p>If all eight seats are taken, you can watch until a place opens; the page will try to join you automatically. A short absence has a <strong>20-second grace period</strong>. An unfinished rope keeps its seat reserved until it is released or expires. No sign-up is needed.</p>
-        <dl class="help-steps"><div><dt>Watch</dt><dd>See who’s hopping around. Tap a rabbit to say hello.</dd></div><div><dt>Carrot</dt><dd>Tap the grass to leave a treat for everyone’s rabbits.</dd></div><div><dt>Lasso</dt><dd>Choose Lasso and tap near a rabbit once. The loop flies to that fixed spot in about a second, while the rabbit keeps moving. Lead its hop, or tempt it to stay with a carrot. A landed loop automatically reels it towards your seat’s basket; a miss comes back empty. No holding or second click needed. <strong>Let go</strong> unties the rope.</dd></div><div><dt>Release</dt><dd>Bring one rabbit out of the shared basket and back onto the grass.</dd></div></dl>
-        <p>A rabbit needs at least <strong>4.5 seconds of pulling</strong> to reach the basket. The rope slips free after <strong>25 seconds</strong>, so keep an eye on the progress bar. Everyone can see your rope. It reels in for you automatically; only you can untie it.</p>
-        <p><strong>Little underground shortcuts.</strong> Five grassy burrows connect the meadow. Rabbits sometimes hop into one, disappear for a moment and peek out of a randomly chosen entrance. Everyone sees the same journey. A rabbit in a burrow cannot be lassoed or taken by wildlife; it still counts as part of the meadow.</p>
-        <p><strong>Your field journal.</strong> Bring each of the eight coat colours safely home to earn its first-catch stamp. Only your own successful catches observed by this browser count. The book stays in this browser; it does not follow you to another device.</p>
-        <p>The seat baskets all lead to the <strong>same shared basket</strong>. Catching a rabbit keeps it safe for everyone; it does not become a private item.</p>
-        <p><strong>Wild visitors</strong> give you a three-second warning: an eagle’s shadow glides across the grass, or a wolf rustles in the bushes. The animal appears when the chase begins. An eagle or grey wolf can steal a rabbit <strong>while you are pulling it in</strong>. Your rabbit is safe only once it reaches the basket. Each visit takes at most one rabbit and leaves at least two on the grass.</p>
-        <p><strong>Pause</strong> freezes only your view and disables feeding, lassoing and releasing. Pausing, opening a panel or switching tabs rests your pull. A loop already in flight still lands in the shared world. Returning to the active meadow automatically resumes your unfinished pull before the rope expires. <strong>Play</strong> brings you back to the latest shared state. Other visitors can keep playing while you take a break.</p>
-        <p><strong>Sync</strong> fetches the latest shared state. Refreshing the page or returning later keeps the meadow’s progress. When nobody is watching, the meadow rests until someone returns.</p>
-        <p>If the connection drops, interactions are disabled while the page reconnects. Your view will catch up when the connection returns.</p>
-        <p class="keyboard-tip"><strong>Playing with a keyboard?</strong> Focus the map and use the arrow keys to move the cursor. W / C / N select Watch, Carrot or Lasso; Enter or Space uses the tool. Press once to cast at the cursor; a landed loop reels in automatically. You do not need to hold a key. Press Escape to close this window.</p>
-      </div>
-      <p class="dialog-footnote">There’s no score. Just one little world to share.</p>
-    </div>
-  </dialog>
-  <script type="module" src="/static/meadow.js?v=meadow14"></script>
-  <script type="module" src="/static/sourcing.js?v=meadow14"></script>
+  <script type="module" src="/static/meadow.js?v=meadow15"></script>
 </body>
 </html>

@@ -1,6 +1,7 @@
 """Small, server-rendered product catalogue. Content is stored in SQLite and cached until restart."""
 import os
 from pathlib import Path
+import re
 from urllib.parse import quote
 from xml.sax.saxutils import escape
 
@@ -22,6 +23,12 @@ env = Environment(loader=FileSystemLoader(ROOT / 'app/templates'), autoescape=se
 contact = SITE['contact']
 contact['email_url'] = 'mailto:' + quote(contact['email'], safe='@.') if contact.get('email') else ''
 contact['phone_url'] = 'tel:' + quote(contact['phone'], safe='+') if contact.get('phone') else ''
+whatsapp_number = re.sub(r'[^0-9]', '', contact.get('whatsapp', ''))
+whatsapp_message = "Hi! I'd like help buying products from China. Can we discuss sourcing and shipping?"
+contact['whatsapp_url'] = (
+    'https://wa.me/' + whatsapp_number + '?text=' + quote(whatsapp_message, safe='')
+    if re.fullmatch(r'[1-9][0-9]{6,14}', whatsapp_number) else ''
+)
 
 def render(template, **context):
     return env.get_template(template).render(site=SITE, base_url=BASE_URL, **context)

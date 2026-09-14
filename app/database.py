@@ -9,6 +9,7 @@ import sqlite3
 
 ROOT = Path(__file__).resolve().parent.parent
 SEED = ROOT / 'data/site.json'
+DEFAULT_WHATSAPP = '+86 15927146828'
 
 
 def database_path():
@@ -24,6 +25,8 @@ def validate(site):
     contact = site.get('contact')
     if not isinstance(contact, dict) or any(not isinstance(contact.get(k), str) for k in ('email', 'phone', 'wechat', 'hours', 'address')):
         raise ValueError('联系方式字段必须是字符串，未填写时使用空字符串')
+    if 'whatsapp' in contact and not isinstance(contact['whatsapp'], str):
+        raise ValueError('WhatsApp 必须是字符串，未填写时使用空字符串')
     if not isinstance(site.get('products'), list):
         raise ValueError('products 必须是列表')
     slugs = set()
@@ -98,6 +101,20 @@ def migrate_solo(connection):
     connection.execute('INSERT INTO content_migrations(name) VALUES(?)', ('solo-v1',))
 
 
+def migrate_whatsapp(connection):
+    """Add the owner's public WhatsApp once without replacing customized content."""
+    migration = 'whatsapp-v1'
+    if connection.execute('SELECT 1 FROM content_migrations WHERE name=?', (migration,)).fetchone():
+        return
+    settings = json.loads(connection.execute('SELECT content FROM site_settings WHERE id=1').fetchone()[0])
+    contact = settings['contact']
+    number = contact.get('whatsapp', '')
+    if isinstance(number, str) and not number.strip():
+        contact['whatsapp'] = DEFAULT_WHATSAPP
+        connection.execute('UPDATE site_settings SET content=? WHERE id=1', (json.dumps(settings, ensure_ascii=False),))
+    connection.execute('INSERT INTO content_migrations(name) VALUES(?)', (migration,))
+
+
 def initialize(path=None):
     path = Path(path) if path is not None else database_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -110,6 +127,7 @@ def initialize(path=None):
             save(connection, json.loads(SEED.read_text(encoding='utf-8')))
         migrate_sourcing(connection)
         migrate_solo(connection)
+        migrate_whatsapp(connection)
     return path
 
 

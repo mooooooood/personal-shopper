@@ -5,7 +5,6 @@ import { seatName, seatPalette, seatActivity, recentSeatResult, seatResultMessag
 
 import { drawCast, drawRetractingCast, drawLandingDust } from './meadow-cast.js?v=meadow14';
 import { drawWildlifeCues } from './meadow-cues.js?v=meadow14';
-import { mountCaptureJournal } from './meadow-journal.js?v=meadow14';
 import { drawBurrows, drawBurrowRabbit } from './meadow-burrows.js?v=meadow14';
 
 import { paintLandscape, paintForeground, drawMeadowAtmosphere, rabbitRenderScale } from './meadow-scene.js?v=meadow14';
@@ -16,9 +15,14 @@ const byId = id => document.getElementById(id);
 
 // Business information lives in a small letter opened over the full-screen game.
 const aboutDialog = byId('about-dialog');
-const helpDialog = byId('help-dialog');
-const overlayOpen = () => Boolean(aboutDialog?.open || helpDialog?.open || byId('journal-dialog')?.open);
-function overlayChanged() { window.dispatchEvent(new Event('meadow-overlay-change')); }
+const overlayOpen = () => Boolean(aboutDialog?.open);
+function restContactButton() { byId('open-about')?.classList.toggle('is-resting', overlayOpen() || document.hidden); }
+function overlayChanged() {
+  byId('open-about')?.setAttribute('aria-expanded', String(overlayOpen()));
+  restContactButton();
+  window.dispatchEvent(new Event('meadow-overlay-change'));
+}
+document.addEventListener('visibilitychange', restContactButton);
 function showDialog(dialog) {
   if (!dialog || dialog.open) return;
   dialog.showModal();
@@ -26,10 +30,8 @@ function showDialog(dialog) {
   overlayChanged();
 }
 byId('open-about')?.addEventListener('click', () => showDialog(aboutDialog));
-byId('open-help')?.addEventListener('click', () => showDialog(helpDialog));
 byId('close-about')?.addEventListener('click', () => aboutDialog.close());
-byId('close-help')?.addEventListener('click', () => helpDialog.close());
-for (const dialog of [aboutDialog, helpDialog].filter(Boolean)) {
+for (const dialog of [aboutDialog].filter(Boolean)) {
   dialog.addEventListener('close', overlayChanged);
   dialog.addEventListener('click', event => {
     if (event.target !== dialog) return;
@@ -38,7 +40,8 @@ for (const dialog of [aboutDialog, helpDialog].filter(Boolean)) {
   });
 }
 function openLinkedSection() {
-  const target = document.getElementById(location.hash.slice(1));
+  // Older category links still lead to a direct conversation.
+  const target = document.getElementById(location.hash === '#request' ? 'contact' : location.hash.slice(1));
   if (!target) return;
   const dialog = target.closest('dialog');
   if (dialog) showDialog(dialog);
@@ -82,8 +85,6 @@ function startMeadow() {
       const value=requestId();localStorage.setItem('meadow.player.v1',value);return value;
     }catch{return requestId();}
   })();
-  const journal=mountCaptureJournal({playerId,button:byId('open-journal'),onOverlayChange:overlayChanged,
-    onUnlock:()=>{byId('open-journal').classList.add('has-new-stamp');}});
   const ownLasso = state => (state?.lassos || []).find(lasso=>lasso.id===state.myLassoId);
   const puller=createAutoLassoPuller({send:sendLasso,accept,change:controls,error:cause=>{
     if(['lasso_gone','not_yours'].includes(cause.message))return;
@@ -183,7 +184,6 @@ function startMeadow() {
       if(old?.epoch===state.epoch&&old.revision===state.revision)connection(true);
       return;
     }
-    journal.accept(state);
     const previousLasso=ownLasso(old);
     const outcome=previousLasso && (state.lassoResults||[]).find(result=>result.id===previousLasso.id);
     if(old?.epoch!==state.epoch)seatFeed=null;

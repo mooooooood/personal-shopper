@@ -34,3 +34,27 @@
 
 /* Readable dialogue, crisp game chrome. No downloaded fonts or screen filters. */
 .meadow-dialog .letter-body,.meadow-dialog .fold-intro,.contact-list,.request-form{font-family:Arial,Helvetica,sans-serif}.meadow-toolbar button:active:not(:disabled),.about-button:active,.help-button:active{transform:translate(1px,1px)}
+
+/* One clear invitation to talk, with two small pixel hops per cycle. */
+.visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+.hud-links{flex-shrink:0}
+.about-button{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:8px;min-height:76px;padding:15px 20px;background:#f5c65c;color:#263e2f;border-color:#354d35;box-shadow:4px 4px 0 #354d35,inset 2px 2px 0 #ffe9a2;animation:contact-hop 8s steps(2,end) 1.5s infinite;transform-origin:center bottom}
+.about-label{font-size:14px;font-weight:700;line-height:1.25}
+.about-hint{display:flex;justify-content:space-between;align-items:center;width:100%;gap:12px;font-size:9px;letter-spacing:1px;line-height:1}
+.about-hint>span{font-size:17px;line-height:.8}
+.about-button:hover,.about-button:focus-visible{animation:none;transform:translateY(-2px);background:#ffd878;box-shadow:4px 6px 0 #354d35,inset 2px 2px 0 #fff0ba}
+.about-button.is-resting{animation:none;transform:none}
+.about-button:active{transform:translate(2px,2px);box-shadow:2px 2px 0 #354d35}
+@keyframes contact-hop{0%,5%,17%,29%,100%{transform:translateY(0)}11%{transform:translateY(-6px)}23%{transform:translateY(-3px)}}
+#about-dialog .contact-intro{font-family:Arial,Helvetica,sans-serif;font-size:16px;color:#354b35;line-height:1.65;margin-bottom:24px}
+.whatsapp-card{padding:23px;background:#e3e8bc;border:2px solid #6b8251;box-shadow:3px 3px 0 #b3c28a;margin:0 0 28px}
+.whatsapp-card h3{font-size:21px;line-height:1.25;margin:0 0 12px;letter-spacing:-.6px}
+#about-dialog .whatsapp-card p{font-family:Arial,Helvetica,sans-serif;line-height:1.6;font-size:14px;color:#435b3c}
+.whatsapp-cta{display:flex;align-items:center;justify-content:center;gap:16px;min-height:56px;padding:15px 18px;background:#285d3e;color:#fffbe8;border:2px solid #214d34;box-shadow:3px 3px 0 #183e2a;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:700;line-height:1.35;text-align:center}
+.whatsapp-cta:hover{background:#1f5135}.whatsapp-cta:active{transform:translate(2px,2px);box-shadow:1px 1px 0 #183e2a}.whatsapp-cta:focus-visible{outline-color:#214d34}
+#about-dialog .whatsapp-number{font-family:var(--pixel-font);font-size:16px;font-weight:700;letter-spacing:.3px;text-align:center;margin:17px 0 4px;user-select:all}
+#about-dialog .whatsapp-note{font-size:12px;margin:0;text-align:center}
+.personal-story .letter-body{line-height:1.8}
+@media(max-width:560px){.about-button{width:128px;min-height:79px;padding:12px;gap:9px}.about-label{font-size:12px}.about-hint{font-size:8px;letter-spacing:.4px}.about-hint>span{font-size:15px}#about-dialog .dialog-content{padding:24px 19px}#about-dialog .contact-intro{font-size:14px;margin-bottom:19px}.whatsapp-card{padding:17px 14px;margin-bottom:24px}.whatsapp-card h3{font-size:18px}#about-dialog .whatsapp-card p{font-size:13px}.whatsapp-cta{padding:13px 10px;font-size:14px;gap:8px;min-height:54px}#about-dialog .whatsapp-number{font-size:15px}#about-dialog .whatsapp-note{font-size:11px}}
+@media(max-width:360px){.about-button{width:114px;padding:10px}.about-label{font-size:11px}.about-hint{font-size:7px}}
+@media(prefers-reduced-motion:reduce){.about-button{animation:none!important}.about-button:hover,.about-button:focus-visible{transform:none}}

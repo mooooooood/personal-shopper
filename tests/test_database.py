@@ -3,7 +3,7 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
-from app.database import initialize, load_site, import_site, backup
+from app.database import DEFAULT_WHATSAPP, initialize, load_site, import_site, backup
 
 class DatabaseTests(unittest.TestCase):
     def setUp(self):
@@ -96,3 +96,64 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(upgraded['products'][0], original_product)
         self.assertIn('I will check sourcing options', upgraded['products'][1]['description'])
         self.assertEqual(load_site(self.path), upgraded)
+
+    def test_whatsapp_migration_preserves_site_products_and_meadow(self):
+        for previous in (None, '', '  '):
+            with self.subTest(previous=previous):
+                path = Path(self.temp.name) / f'whatsapp-{previous!r}.sqlite3'
+                site = load_site(path)
+                site['brand'] = 'My independent shop'
+                site['about'] = 'My custom introduction'
+                site['contact']['email'] = 'owner@example.com'
+                site['contact']['phone'] = '+44 1234567890'
+                site['contact']['wechat'] = 'my-custom-account'
+                site['products'] = list(reversed(site['products']))[:2]
+                if previous is None:
+                    site['contact'].pop('whatsapp')
+                else:
+                    site['contact']['whatsapp'] = previous
+                self.write(site)
+                import_site(self.source, path)
+                meadow_state = '{"worldId":"keep-this-world","rabbits":[{"id":42}]}'
+                with sqlite3.connect(path) as conn:
+                    conn.execute("DELETE FROM content_migrations WHERE name='whatsapp-v1'")
+                    conn.execute('CREATE TABLE meadow_state (id INTEGER PRIMARY KEY, state TEXT NOT NULL, updated_at TEXT NOT NULL)')
+                    conn.execute('INSERT INTO meadow_state VALUES(1, ?, ?)', (meadow_state, '2026-09-14'))
+                    products_before = conn.execute('SELECT * FROM products ORDER BY position').fetchall()
+                expected = json.loads(json.dumps(site))
+                expected['contact']['whatsapp'] = DEFAULT_WHATSAPP
+                self.assertEqual(load_site(path), expected)
+                self.assertEqual(load_site(path), expected)
+                with sqlite3.connect(path) as conn:
+                    self.assertEqual(conn.execute('SELECT * FROM products ORDER BY position').fetchall(), products_before)
+                    self.assertEqual(conn.execute('SELECT * FROM meadow_state').fetchall(), [(1, meadow_state, '2026-09-14')])
+                    self.assertEqual(conn.execute("SELECT COUNT(*) FROM content_migrations WHERE name='whatsapp-v1'").fetchone()[0], 1)
+
+    def test_whatsapp_migration_keeps_existing_number_and_runs_once(self):
+        site = load_site(self.path)
+        site['contact']['whatsapp'] = '+44 7700 900123'
+        self.write(site)
+        import_site(self.source, self.path)
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("DELETE FROM content_migrations WHERE name='whatsapp-v1'")
+        self.assertEqual(load_site(self.path), site)
+        site['contact']['whatsapp'] = ''
+        self.write(site)
+        import_site(self.source, self.path)
+        self.assertEqual(load_site(self.path), site)
+
+    def test_legacy_contact_import_without_whatsapp_remains_supported(self):
+        site = load_site(self.path)
+        site['contact'].pop('whatsapp')
+        self.write(site)
+        import_site(self.source, self.path)
+        self.assertEqual(load_site(self.path), site)
+
+    def test_invalid_whatsapp_import_preserves_existing_data(self):
+        original = load_site(self.path)
+        site = json.loads(json.dumps(original))
+        site['contact']['whatsapp'] = 8615927146828
+        self.write(site)
+        with self.assertRaises(ValueError):
+            import_site(self.source, self.path)
+        self.assertEqual(load_site(self.path), original)
