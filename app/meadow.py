@@ -20,7 +20,9 @@ class Meadow:
     nesting_duration = 2.8
     margin = 28
     pond = {"x": 825, "y": 135, "rx": 114, "ry": 72}
-    schema_version = 6
+    schema_version = 7
+    dog_lifetime = 20.0
+    dog_scare_radius = 160
     coats = ("white", "cream", "caramel", "chocolate", "silver", "charcoal", "ginger", "spotted")
     lasso_anchor = {"x": 500, "y": 380}
     seat_anchors = [
@@ -60,6 +62,8 @@ class Meadow:
         self.born_count = 0
         self.raided_count = 0
         self.encounter = None
+        self.dog = None
+        self._next_dog_id = 1
         self._next_rabbit_id = self._next_carrot_id = self._next_pair_id = 1
         self._next_encounter_id = 1
         self._pair_check = 0.0
@@ -184,7 +188,8 @@ class Meadow:
         vacancies = self.max_rabbits - self.total_count - len(self.pairs)
         eligible = [rabbit for rabbit in self.rabbits
                     if rabbit["adult"] and rabbit["cooldown"] <= 0 and not rabbit["pairId"]
-                    and rabbit["state"] not in ("roped", "burrow") and rabbit["_burrowTarget"] is None]
+                    and rabbit["state"] not in ("roped", "burrow") and rabbit["_burrowTarget"] is None
+                    and not self._dog_near(rabbit)]
         while len(eligible) > 1 and vacancies > 0:
             first, second = min(((first, second) for i, first in enumerate(eligible)
                                  for second in eligible[i + 1:]),
@@ -265,6 +270,7 @@ class Meadow:
             return
         dt = min(dt, .1)
         self.time += dt
+        self._advance_dog(dt)
         for carrot in self.carrots:
             carrot["remaining"] -= dt
         self.carrots[:] = [carrot for carrot in self.carrots if carrot["remaining"] > 0]
@@ -281,6 +287,14 @@ class Meadow:
                 self._advance_burrow(rabbit, dt)
                 continue
             if rabbit["state"] == "roped":
+                continue
+            if self._dog_near(rabbit):
+                # The dog can come within range between its throttled scare
+                # checks. Cancel an unfinished walk to a hole immediately so
+                # arriving on that step cannot leave an orphaned destination.
+                rabbit["_burrowTarget"] = None
+                rabbit["_burrowWait"] = max(5.0, rabbit["_burrowWait"])
+                self._advance_movement(rabbit, dt * 1.7)
                 continue
             if rabbit["_burrowTarget"] is not None:
                 self._advance_movement(rabbit, dt)
@@ -330,6 +344,65 @@ class Meadow:
             self._pair_check = .5
         self._advance_encounter(dt)
 
+    def release_dog(self, seat_id):
+        """Release one harmless shared dog from the visitor's occupied seat."""
+        anchor = self._anchor_for_seat(seat_id)
+        if self.dog is not None:
+            return "dog_busy"
+        self.dog = {
+            "id": self._next_dog_id, **self._safe_point(anchor["x"], anchor["y"]),
+            "direction": 1 if anchor["x"] < self.width / 2 else -1,
+            "remaining": self.dog_lifetime, "moving": False,
+            "_path": [], "_routeIn": 0.0, "_scareIn": 0.0,
+        }
+        self._next_dog_id += 1
+        return "dog_released"
+
+    def _dog_near(self, rabbit):
+        return (self.dog is not None and rabbit["burrow"] is None
+                and rabbit["state"] not in ("roped", "basket")
+                and self._distance(self.dog, rabbit) < self.dog_scare_radius)
+
+    def _advance_dog(self, dt):
+        dog = self.dog
+        if dog is None:
+            return
+        dog["remaining"] = max(0.0, dog["remaining"] - dt)
+        if dog["remaining"] <= 1e-8:
+            self.dog = None
+            return
+        dog["_routeIn"] -= dt
+        if dog["_routeIn"] <= 0:
+            free = [rabbit for rabbit in self.rabbits
+                    if rabbit["burrow"] is None and rabbit["state"] != "roped"]
+            if free:
+                target = min(free, key=lambda rabbit: self._distance(dog, rabbit))
+                dog["_path"] = self._route_to(dog, self._safe_point(target["x"], target["y"]))
+            else:
+                dog["_path"] = []
+            dog["_routeIn"] = .6
+        self._move_along_path(dog, 155 * dt)
+        dog["moving"] = bool(dog["_path"])
+        dog["_scareIn"] -= dt
+        if dog["_scareIn"] > 0:
+            return
+        dog["_scareIn"] = .6
+        # Replan at most twice per second, using the same pond-safe routing as
+        # normal hops. Do not disturb rabbits already inside holes or ropes.
+        for rabbit in self.rabbits:
+            if not self._dog_near(rabbit):
+                continue
+            pair = next((item for item in self.pairs if item["id"] == rabbit["pairId"]), None)
+            if pair is not None:
+                self._end_pair(pair, interrupted=True)
+            rabbit.update(_carrotId=None, _burrowTarget=None,
+                          _burrowWait=max(5.0, rabbit["_burrowWait"]))
+            angle = math.atan2(rabbit["y"] - dog["y"], rabbit["x"] - dog["x"])
+            exits = [self._safe_point(rabbit["x"] + math.cos(angle + turn) * 145,
+                                     rabbit["y"] + math.sin(angle + turn) * 145)
+                     for turn in (0, -.7, .7, -1.4, 1.4)]
+            self._move_toward(rabbit, max(exits, key=lambda point: self._distance(dog, point)))
+
     def _start_encounter(self, kind=None):
         # The basket is a refuge. Wildlife never takes the last two on the grass.
         surface = [rabbit for rabbit in self.rabbits if rabbit["burrow"] is None]
@@ -356,7 +429,9 @@ class Meadow:
         return True
 
     def _move_wildlife(self, distance):
-        animal = self.encounter
+        self._move_along_path(self.encounter, distance)
+
+    def _move_along_path(self, animal, distance):
         while distance > 0 and animal["_path"]:
             destination = animal["_path"][0]
             gap = self._distance(animal, destination)
@@ -645,6 +720,7 @@ class Meadow:
                 "adultAge": self.adult_age, "time": self.time, "bornCount": self.born_count,
                 "raidedCount": self.raided_count, "burrows": deepcopy(list(self.burrows)),
                 "encounter": deepcopy(public(self.encounter)) if self.encounter is not None else None,
+                "dog": public(self.dog) if self.dog is not None else None,
                 "totalCount": self.total_count, "rabbits": [public(rabbit) for rabbit in self.rabbits],
                 "basket": [public(rabbit) for rabbit in self.basket],
                 "carrots": deepcopy(self.carrots), "pairs": deepcopy(self.pairs),
@@ -658,6 +734,7 @@ class Meadow:
         return deepcopy({"version": self.schema_version, "worldId": self.world_id, "width": self.width, "height": self.height,
                          "maxRabbits": self.max_rabbits, "time": self.time, "bornCount": self.born_count,
                          "raidedCount": self.raided_count, "encounter": self.encounter,
+                         "dog": self.dog, "nextDogId": self._next_dog_id,
                          "nextEncounterId": self._next_encounter_id, "nextEncounterIn": self._next_encounter_in,
                          "rabbits": self.rabbits, "basket": self.basket, "carrots": self.carrots,
                          "pairs": self.pairs, "receipts": self.receipts, "nextRabbitId": self._next_rabbit_id,
@@ -670,7 +747,7 @@ class Meadow:
         """Reject incomplete/corrupt state instead of silently deleting a shared world."""
         try:
             if (not isinstance(state, dict) or type(state["version"]) is not int
-                    or state["version"] not in (1, 2, 3, 4, 5, cls.schema_version)):
+                    or state["version"] not in (1, 2, 3, 4, 5, 6, cls.schema_version)):
                 raise ValueError("unsupported meadow state version")
             if state["width"] != cls.width or state["height"] != cls.height:
                 raise ValueError("unsupported meadow dimensions")
@@ -678,6 +755,9 @@ class Meadow:
             model.world_id = state["worldId"] if state["version"] >= 5 else state.get("worldId", model.world_id)
             model.time, model.born_count = state["time"], state["bornCount"]
             model._pair_check = state["pairCheck"]
+            if state["version"] >= 7:
+                model.dog = deepcopy(state["dog"])
+                model._next_dog_id = state["nextDogId"]
             for name in ("rabbits", "basket", "carrots", "pairs", "receipts"):
                 setattr(model, name, deepcopy(state[name]))
             if state["version"] < 6:
@@ -768,6 +848,7 @@ class Meadow:
         integer(self.born_count, 0)
         integer(self.raided_count, 0)
         integer(self._next_encounter_id)
+        integer(self._next_dog_id)
         number(self._next_encounter_in, 0, 70)
         number(self._pair_check, 0, .5)
         all_rabbits = self.rabbits + self.basket
@@ -962,6 +1043,31 @@ class Meadow:
             integer(next_id)
             if len(set(identities)) != len(identities) or next_id <= max(identities, default=0):
                 raise ValueError("invalid next identifier")
+        if self.dog is not None:
+            dog = self.dog
+            if (not isinstance(dog, dict) or set(dog) != {
+                    "id", "x", "y", "direction", "remaining", "moving", "_path", "_routeIn", "_scareIn"}):
+                raise ValueError("invalid dog")
+            integer(dog["id"])
+            if dog["id"] >= self._next_dog_id:
+                raise ValueError("invalid dog identity")
+            point(dog)
+            number(dog["remaining"], 1e-9, self.dog_lifetime)
+            for key in ("_routeIn", "_scareIn"):
+                number(dog[key], 0, .6)
+            if type(dog["direction"]) is not int or dog["direction"] not in (-1, 1):
+                raise ValueError("invalid dog direction")
+            if (type(dog["moving"]) is not bool or not isinstance(dog["_path"], list)
+                    or len(dog["_path"]) > 18 or dog["moving"] != bool(dog["_path"])):
+                raise ValueError("invalid dog route")
+            previous = dog
+            for destination in dog["_path"]:
+                if not isinstance(destination, dict) or set(destination) != {"x", "y"}:
+                    raise ValueError("invalid dog destination")
+                point(destination)
+                if not self._segment_clear(previous, destination):
+                    raise ValueError("dog route crosses water")
+                previous = destination
         if self.encounter is not None:
             animal = self.encounter
             if not isinstance(animal, dict):

@@ -195,3 +195,33 @@ test('invalid, duplicate, and orphaned ropes never replace good shared state',()
     assert.equal(buffer.latest.revision,1);
   }
 });
+
+const dog=(id,x,remaining=20)=>({id,x,y:300,remaining,direction:1,moving:true});
+test('a shared dog interpolates authoritative movement and lifetime without predicting beyond snapshots',()=>{
+  const buffer=createSnapshotBuffer();
+  const initial=snapshot(1,[],{dog:dog(1,100)}),next=snapshot(2,[],{dog:dog(1,300,19)});
+  buffer.accept(initial,0);buffer.accept(next,1000);
+  assert.deepEqual(buffer.sample(1500).dog,{...dog(1,200,19.5)});
+  assert.equal(buffer.sample(100000).dog.x,300);
+  assert.equal(buffer.sample(100000).dog.remaining,19);
+  buffer.sample(1500).dog.x=999;
+  assert.equal(next.dog.x,300);
+  buffer.accept(snapshot(3,[],{dog:null}),2000);
+  assert.equal(buffer.sample(2000).dog,null);
+});
+test('new dog visits and restarted worlds do not glide from an earlier dog',()=>{
+  const buffer=createSnapshotBuffer();
+  buffer.accept(snapshot(1,[],{dog:dog(1,100)}),0);
+  buffer.accept(snapshot(2,[],{dog:dog(2,800)}),1000);
+  assert.equal(buffer.sample(1000).dog.x,800);
+  buffer.accept(snapshot(0,[],{epoch:'server-b',dog:dog(2,400)}),2000);
+  assert.equal(buffer.sample(2000).dog.x,400);
+  assert.equal(buffer.accept(snapshot(3,[],{dog:dog(2,800)}),2100),false);
+});
+test('malformed dog data cannot replace the current shared world',()=>{
+  const buffer=createSnapshotBuffer();buffer.accept(snapshot(1,[]),0);
+  for(const patch of [{id:0},{x:NaN},{x:999},{y:-1},{remaining:21},{remaining:-1},{direction:0},{moving:'yes'}]){
+    assert.throws(()=>buffer.accept(snapshot(2,[],{dog:{...dog(1,100),...patch}}),1000));
+    assert.equal(buffer.latest.revision,1);
+  }
+});

@@ -1,6 +1,6 @@
 // The server owns rabbit coats and wildlife events as well as movement.
 // This module only smooths received snapshots; it never rolls a random event.
-import { validSeats } from './meadow-seats.js?v=meadow14';
+import { validSeats } from './meadow-seats.js?v=meadow16';
 const coats = new Set(['white','cream','caramel','chocolate','silver','charcoal','ginger','spotted']);
 function validCoat(rabbit) { return rabbit.coat === undefined || coats.has(rabbit.coat); }
 const identity=value=>Number.isSafeInteger(value)&&value>0;
@@ -46,6 +46,12 @@ function validLassos(state) {
       &&['caught','stolen','escaped','cancelled','missed'].includes(result.outcome)
       &&between(result.x,0,1000)&&between(result.y,0,600)&&between(result.time,0,Infinity));
 }
+function validDog(dog) {
+  return dog == null || (identity(dog.id)
+    && between(dog.x,28,972) && between(dog.y,28,572)
+    && between(dog.remaining,0,20) && [-1,1].includes(dog.direction)
+    && typeof dog.moving==='boolean');
+}
 function validEncounter(event) {
   return event == null || (Number.isSafeInteger(event.id) && event.id > 0
     && ['eagle','wolf'].includes(event.kind) && ['warning','chasing','leaving'].includes(event.phase)
@@ -89,6 +95,13 @@ export function createSnapshotBuffer(duration = 1000) {
         encounter.remaining = priorEvent.remaining + (encounter.remaining - priorEvent.remaining) * progress;
       }
     }
+    let dog=latest.dog?{...latest.dog}:null;
+    const priorDog=start?.dog;
+    if(dog && priorDog?.id===dog.id){
+      dog.x=priorDog.x+(dog.x-priorDog.x)*progress;
+      dog.y=priorDog.y+(dog.y-priorDog.y)*progress;
+      dog.remaining=priorDog.remaining+(dog.remaining-priorDog.remaining)*progress;
+    }
     const priorRopes=new Map((start?.lassos||[]).map(rope=>[rope.id,rope]));
     const lassos=(latest.lassos||[]).map(rope=>{
       const prior=priorRopes.get(rope.id);
@@ -98,7 +111,7 @@ export function createSnapshotBuffer(duration = 1000) {
         castElapsed:rope.phase==='casting'?Math.min(rope.castDuration,rope.castElapsed+Math.max(0,now-receivedAt)/1000):rope.castElapsed,
         remaining:prior?prior.remaining+(rope.remaining-prior.remaining)*progress:rope.remaining};
     });
-    return { ...latest, time, encounter, lassos, rabbits: latest.rabbits.map(rabbit => {
+    return { ...latest, time, encounter, dog, lassos, rabbits: latest.rabbits.map(rabbit => {
       const prior = previous.get(rabbit.id);
       // A complete underground trip can happen between two polls. The saved
       // trip counter also prevents a cross-map glide when those phases are missed.
@@ -132,6 +145,7 @@ export function createSnapshotBuffer(duration = 1000) {
       || state.carrots.length > 6 || ![...state.rabbits,...state.basket].every(rabbit =>
         Number.isSafeInteger(rabbit.id) && Number.isFinite(rabbit.x) && Number.isFinite(rabbit.y) && validCoat(rabbit))
       || !validEncounter(state.encounter)
+      || !validDog(state.dog)
       || !validLassos(state)
       || !validBurrows(state)
       || !validSeats(state)

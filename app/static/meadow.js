@@ -1,15 +1,16 @@
-import { drawRabbit } from './rabbit-art.js?v=meadow14';
-import { createAutoLassoPuller } from './lasso-pull.js?v=meadow14';
-import { createSnapshotBuffer, toWorldPoint } from './meadow-model.js?v=meadow14';
-import { seatName, seatPalette, seatActivity, recentSeatResult, seatResultMessage } from './meadow-seats.js?v=meadow14';
+import { drawRabbit } from './rabbit-art.js?v=meadow16';
+import { createAutoLassoPuller } from './lasso-pull.js?v=meadow16';
+import { createSnapshotBuffer, toWorldPoint } from './meadow-model.js?v=meadow16';
+import { seatName, seatPalette, seatActivity, recentSeatResult, seatResultMessage } from './meadow-seats.js?v=meadow16';
 
-import { drawCast, drawRetractingCast, drawLandingDust } from './meadow-cast.js?v=meadow14';
-import { drawWildlifeCues } from './meadow-cues.js?v=meadow14';
-import { drawBurrows, drawBurrowRabbit } from './meadow-burrows.js?v=meadow14';
+import { drawCast, drawRetractingCast, drawLandingDust } from './meadow-cast.js?v=meadow16';
+import { drawWildlifeCues } from './meadow-cues.js?v=meadow16';
+import { drawBurrows, drawBurrowRabbit } from './meadow-burrows.js?v=meadow16';
 
-import { paintLandscape, paintForeground, drawMeadowAtmosphere, rabbitRenderScale } from './meadow-scene.js?v=meadow14';
+import { paintLandscape, paintForeground, drawMeadowAtmosphere, rabbitRenderScale } from './meadow-scene.js?v=meadow16';
 
-import { drawPixelWildlife, drawPixelCarrot } from './meadow-sprites.js?v=meadow14';
+import { drawPixelWildlife, drawPixelCarrot } from './meadow-sprites.js?v=meadow16';
+import { drawDog } from './meadow-dog.js?v=meadow16';
 
 const byId = id => document.getElementById(id);
 
@@ -64,15 +65,14 @@ else if (byId('meadow-loading')) {
 }
 
 function startMeadow() {
-  let W = 1000, H = 600, tool = 'watch';
+  let W = 1000, H = 600, tool = null;
   const buffer = createSnapshotBuffer();
-  let frame = 0, lastTime = 0, particles = [], frozen = null;
+  let frame = 0, lastTime = 0, particles = [];
   let cursor = {x:500, y:300, visible:false}, keyboardRing = false;
   let connected = false, pending = false, polling = false, pollTimer = 0, failures = 0;
   let previousNumbers = '', rendered = null, seatFeed = null;
   const seatRows = new Map();
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-  let paused = reducedMotion.matches;
   const background = document.createElement('canvas');
   const b = background.getContext('2d');
   const foreground=document.createElement('canvas'),front=foreground.getContext('2d');
@@ -92,19 +92,17 @@ function startMeadow() {
   }});
 
   function controls() {
-    const blocked = !connected || paused || pending;
+    const blocked = !connected || pending;
     byId('tool-carrot').disabled = blocked;
     byId('tool-net').disabled = blocked || (buffer.latest?.seats && buffer.latest.mySeatId==null);
-    byId('release-rabbit').disabled = blocked || !buffer.latest?.basket.length;
-    byId('reset-meadow').disabled = polling || pending;
-    byId('pause-meadow').disabled = !buffer.latest;
+    byId('release-dog').disabled = blocked || Boolean(buffer.latest?.dog) || buffer.latest?.mySeatId == null;
     const own=ownLasso(buffer.latest);
     byId('lasso-controls').hidden=!own;
     byId('cancel-lasso').disabled=blocked||!own;
   }
   function followRope(){
     puller.update(buffer.latest?.myLassoId??null,
-      connected&&!paused&&!pending&&!document.hidden&&!overlayOpen());
+      connected&&!pending&&!document.hidden&&!overlayOpen());
   }
   function connection(ok) {
     connected = ok;
@@ -123,6 +121,10 @@ function startMeadow() {
   function counters(state) {
     if (!state) return;
     presence(state);
+    const dogButton=byId('release-dog'),dogLabel=byId('dog-label');
+    const label=state.dog?`Dog · ${Math.max(1,Math.ceil(state.dog.remaining))}s`:'Let dog out';
+    if(dogLabel.textContent!==label)dogLabel.textContent=label;
+    dogButton.dataset.active=String(Boolean(state.dog));
     const own=ownLasso(state);
     if(own){
       const percent=Math.round(own.progress*100);
@@ -173,6 +175,7 @@ function startMeadow() {
     if(show)text(byId('seat-feed'),seatResultMessage(seatFeed));
   }
   function emit(item, kind = 'heart', count = 3) {
+    if(reducedMotion.matches)return;
     const p = projected(item);
     for (let i = 0; i < count; i++) particles.push({x:p.x + (i-(count-1)/2)*14, y:p.y-25, age:-i*0.1, kind});
     particles = particles.slice(-60);
@@ -193,13 +196,13 @@ function startMeadow() {
         &&result.seatId!==state.mySeatId&&!priorResults.has(result.id));
       if(sharedResults.length)seatFeed=sharedResults.at(-1);
     }
-    if (changed && old?.epoch === state.epoch && !paused && !overlayOpen()) {
+    if (changed && old?.epoch === state.epoch && !overlayOpen()) {
       const oldIds = new Set([...old.rabbits, ...old.basket].map(rabbit => rabbit.id));
       const babies = state.rabbits.filter(rabbit => !oldIds.has(rabbit.id) && !rabbit.adult);
       for (const rabbit of babies) emit(rabbit, 'heart', 5);
       if (babies.length && !state.encounter && !ownLasso(state) && !outcome) status('A new baby, a surprise coat. Meet the meadow’s newest neighbour!');
     }
-    if (changed && state.encounter && !paused && !overlayOpen()
+    if (changed && state.encounter && !overlayOpen()
       && (old?.encounter?.id !== state.encounter.id || old?.encounter?.phase !== state.encounter.phase)) {
       const event = state.encounter, animal = event.kind === 'eagle' ? 'An eagle' : 'A grey wolf';
       status(event.phase === 'warning' ? `${animal} is nearby. Rabbits on a rope are still out in the open.`
@@ -207,23 +210,25 @@ function startMeadow() {
         : event.carrying ? `${animal} carried a rabbit away. The rest of the meadow keeps growing.`
         : `${animal} is leaving empty-handed. A lucky moment for the meadow.`);
     }
-    if(previousLasso?.phase==='casting'&&ownLasso(state)?.phase==='reeling'&&!paused&&!overlayOpen())
+    if(previousLasso?.phase==='casting'&&ownLasso(state)?.phase==='reeling'&&!overlayOpen())
       status('The loop landed! Reeling home now — keep an eye on the grass.');
-    if(outcome && !paused){
+    if(outcome){
       status({caught:'Home safe! Your rabbit reached the shared basket.',
         stolen:'Snatched from the rope! The visitor got there before the basket.',
         escaped:'The rope went slack. Your rabbit is free again.',
         cancelled:'You let go. The rabbit is back on the grass.',
         missed:'Just missed! Try leading a hopping rabbit, or tempt it with a carrot.'}[outcome.outcome]);
     }
-    if(state.mySeatId!=null&&old&&old.mySeatId!==state.mySeatId&&!paused)
+    if(state.mySeatId!=null&&old&&old.mySeatId!==state.mySeatId)
       status(`${seatName(state.mySeatId)} is yours. Your rope will bring rabbits back here.`);
     if (!old) {
       byId('meadow-loading').hidden = true;
-      if (paused || !state.encounter) status(paused ? 'Your view is paused for reduced motion. Play joins the live meadow.'
-        : 'One meadow for everyone. Leave a carrot, meet the rabbits, and make yourself at home.');
+      if (!state.encounter && !state.dog) status('A little meadow to share. Choose a tool, or let the dog out for a run.');
     }
-    if (paused && !frozen) frozen = buffer.sample(performance.now());
+    if(state.dog && old?.dog?.id!==state.dog.id && !overlayOpen())
+      status('The dog is out! Nearby rabbits will hop away for 20 seconds.');
+    else if(old?.dog && !state.dog && !overlayOpen())
+      status('The dog has gone home. A quiet meadow again.');
     connection(true);
     draw();
   }
@@ -260,7 +265,7 @@ function startMeadow() {
     } finally {
       polling = false;
       controls();
-      queuePoll(failures ? Math.min(15000, 1000 * 2 ** Math.min(failures,4)) : paused || overlayOpen() ? 3000 : 1000);
+      queuePoll(failures ? Math.min(15000, 1000 * 2 ** Math.min(failures,4)) : overlayOpen() ? 3000 : 1000);
     }
   }
   function requestId() {
@@ -274,7 +279,7 @@ function startMeadow() {
       body:JSON.stringify({action,lassoId,requestId:requestId()})});
   }
   async function action(details) {
-    if (!connected || paused || pending) return;
+    if (!connected || pending) return;
     pending = true;
     followRope();
     controls();
@@ -285,18 +290,18 @@ function startMeadow() {
       const messages = {
         lassoed:'Rope away! A moving rabbit can dodge the landing.',
         meadow_full:'All eight seats are taken. Watch the others; you will join when a seat opens.',
-        seat_busy:'This seat already has a rope. Sync the meadow before casting again.',
+        seat_busy:'This seat already has a rope. Wait for it to return before casting again.',
         lasso_cancelled:'You let go. The rabbit is free again.',
         rabbit_roped:'Another visitor already has this rabbit on a rope.',
         player_busy:'Bring your current rabbit home or let go before casting again.',
         lasso_limit:'The meadow has enough ropes for now. Try again in a moment.',
         lasso_gone:'That rope has already gone. Check the meadow before casting again.',
         not_yours:'This rope belongs to another visitor.',
-        released:'Back on the grass, for everyone to enjoy.',
+        dog_released:'The dog is out! Watch the rabbits scatter for 20 seconds.',
+        dog_busy:'The dog is already playing. Let it finish this run.',
         carrot_added:'A carrot for our shared meadow. Watch who comes over.',
         rabbit_hidden:'That rabbit slipped into a burrow. Watch another entrance for its ears!',
         rabbit_gone:'That rabbit has already left this spot. Check the meadow and shared basket.',
-        basket_empty:'The shared basket is empty. Everyone is out on the grass.',
         carrot_limit:'There are already six carrots in the meadow. Let the rabbits finish a few.',
         invalid_position:'Choose a patch of grass away from the pond and the edge of the meadow.',
       };
@@ -311,7 +316,7 @@ function startMeadow() {
     } finally { pending = false; followRope(); controls(); }
   }
   function chooseTool(next) {
-    if (next !== 'watch' && (!connected || paused || pending)) return;
+    if (next !== 'watch' && (!connected || pending)) return;
     if(next==='net'&&buffer.latest?.seats&&buffer.latest.mySeatId==null){
       status('All eight seats are taken. You can watch and leave carrots while a seat opens.');return;
     }
@@ -328,7 +333,8 @@ function startMeadow() {
     return {x:Math.max(0,Math.min(W,(event.clientX-rect.left)/rect.width*W)), y:Math.max(0,Math.min(H,(event.clientY-rect.top)/rect.height*H))};
   }
   function useTool(position) {
-    if (!connected || paused || pending || !rendered) return;
+    if (!connected || pending || !rendered) return;
+    if(!tool){status('Choose Watch, Carrot or Lasso — or let the dog out.');return;}
     if(tool==='net'&&buffer.latest?.seats&&buffer.latest.mySeatId==null){
       status('You are watching for now. A free seat will be assigned automatically.');return;
     }
@@ -366,28 +372,14 @@ function startMeadow() {
     else if(['w','c','n'].includes(event.key.toLowerCase()))chooseTool({w:'watch',c:'carrot',n:'net'}[event.key.toLowerCase()]);
   });
   byId('cancel-lasso').addEventListener('click',()=>{const own=ownLasso(buffer.latest);if(own)action({action:'cancel_lasso',lassoId:own.id});});
-  function pauseLabel() {
-    byId('pause-meadow').textContent=paused?'▶ Live view':'Ⅱ Pause view';
-    byId('pause-meadow').setAttribute('aria-pressed',String(paused));
-  }
-  function pauseView(next) {
-    if (next && !paused) frozen=buffer.sample(performance.now());
-    paused=next;
-    followRope();
-    if (!paused) {frozen=null;poll();}
-    pauseLabel(); controls(); schedule(); draw();
-    status(paused?'Only your view is paused. The shared meadow continues for everyone else.':'Back to the live shared meadow.');
-  }
-  byId('pause-meadow').addEventListener('click',()=>pauseView(!paused));
-  byId('release-rabbit').addEventListener('click',()=>action({action:'release'}));
-  byId('reset-meadow').addEventListener('click',()=>{if(paused)pauseView(false);else poll();status('Syncing with the shared meadow. The rabbits stay right where they belong.');});
-  reducedMotion.addEventListener('change',event=>{if(event.matches)pauseView(true);});
+  byId('release-dog').addEventListener('click',()=>action({action:'dog'}));
+  reducedMotion.addEventListener('change',()=>{particles=[];schedule();draw();});
 
   function draw() {
     ctx.setTransform(canvas.width/W,0,0,canvas.height/H,0,0);
     ctx.imageSmoothingEnabled=false;
     ctx.drawImage(background,0,0);
-    const state=paused?frozen:buffer.sample(performance.now());
+    const state=buffer.sample(performance.now());
     if (!state) return;
     rendered=state;
     counters(state);
@@ -406,7 +398,16 @@ function startMeadow() {
         if(rope.castDuration&&!reducedMotion.matches){const p=projected(rabbit);drawLandingDust(ctx,p.x,p.y,25-rope.remaining-rope.castDuration);}
       }
     }
-    for(const rabbit of [...state.rabbits].sort((a,z)=>a.y-z.y))drawBurrowRabbit(ctx,projected(rabbit),state.time,drawRabbit,{reducedMotion:reducedMotion.matches});
+    const animals=state.rabbits.map(rabbit=>({kind:'rabbit',animal:rabbit}));
+    if(state.dog)animals.push({kind:'dog',animal:state.dog});
+    animals.sort((a,z)=>a.animal.y-z.animal.y);
+    for(const {kind,animal} of animals){
+      const pose=projected(animal);
+      if(reducedMotion.matches){pose.moving=false;pose.motionAmount=0;pose.hopProgress=0;}
+      const time=reducedMotion.matches?0:state.time;
+      if(kind==='dog')drawDog(ctx,pose,time);
+      else drawBurrowRabbit(ctx,pose,time,drawRabbit,{reducedMotion:reducedMotion.matches});
+    }
     for(const rope of state.lassos||[]){
       const rabbit=state.rabbits.find(rabbit=>rabbit.id===rope.rabbitId);
       if(rabbit&&rope.phase!=='casting'){const p=projected(rabbit);drawRopeLoop(ctx,p.x,p.y,rope.id===state.myLassoId,rope.pulling,rope.seatId,25-rope.remaining-(rope.castDuration||0),p.renderScale);}
@@ -430,11 +431,11 @@ function startMeadow() {
     for(const pair of state.pairs){if(pair.phase!=='nesting')continue;const p=projected(pair),y=p.y-43+Math.sin(state.time*3)*3;ellipse(ctx,p.x,y,15,14,'#fff8ee');heart(ctx,p.x,y,8,'#db8291');}
     for(const p of particles){if(p.age<0)continue;ctx.globalAlpha=Math.max(0,1-p.age/1.6);if(p.kind==='heart')heart(ctx,p.x,p.y-p.age*26,7,'#df879a');else flower(ctx,p.x,p.y-p.age*26,5,'#fff9da','#d7ad60');}
     ctx.globalAlpha=1;
-    drawButterfly(ctx,W*(.32+Math.sin(state.time*.22)*.105),H*(.157+Math.sin(state.time*.39)*.037),state.time,'#e9b891');
-    drawButterfly(ctx,W*(.88+Math.sin(state.time*.27+3)*.038),H*(.688+Math.sin(state.time*.48)*.05),state.time+2,'#fbf4c8');
+    if(!reducedMotion.matches)drawButterfly(ctx,W*(.32+Math.sin(state.time*.22)*.105),H*(.157+Math.sin(state.time*.39)*.037),state.time,'#e9b891');
+    if(!reducedMotion.matches)drawButterfly(ctx,W*(.88+Math.sin(state.time*.27+3)*.038),H*(.688+Math.sin(state.time*.48)*.05),state.time+2,'#fbf4c8');
     ctx.drawImage(foreground,0,0);
-    if((cursor.visible||keyboardRing)&&connected&&!paused){ctx.strokeStyle='#426947';ctx.lineWidth=2;ctx.setLineDash([5,5]);ctx.beginPath();ctx.ellipse(cursor.x,cursor.y,tool==='net'?31:24,tool==='net'?22:16,0,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);if(tool==='carrot')drawCarrot(ctx,cursor.x+20,cursor.y-22,.8);if(tool==='net')drawLasso(ctx,cursor.x+15,cursor.y-24);if(tool==='watch')heart(ctx,cursor.x+16,cursor.y-25,6,'#d4828f');}
-    if(paused){rounded(ctx,W/2-124,H/2-17,248,34,17,'#f7f6e9');ctx.font='12px Arial, sans-serif';ctx.textAlign='center';ctx.fillStyle='#496246';ctx.fillText('YOUR VIEW IS PAUSED',W/2,H/2+5);}
+    if((cursor.visible&&tool||keyboardRing)&&connected){ctx.strokeStyle='#426947';ctx.lineWidth=2;ctx.setLineDash([5,5]);ctx.beginPath();ctx.ellipse(cursor.x,cursor.y,tool==='net'?31:24,tool==='net'?22:16,0,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);if(tool==='carrot')drawCarrot(ctx,cursor.x+20,cursor.y-22,.8);if(tool==='net')drawLasso(ctx,cursor.x+15,cursor.y-24);if(tool==='watch')heart(ctx,cursor.x+16,cursor.y-25,6,'#d4828f');}
+
   }
   function resize() {
     const rect=canvas.getBoundingClientRect();
@@ -450,7 +451,7 @@ function startMeadow() {
     canvas.width=Math.max(1,Math.round(rect.width/2));canvas.height=Math.max(1,Math.round(rect.height/2));
     draw();
   }
-  function canRun(){return connected&&!paused&&!document.hidden&&!overlayOpen();}
+  function canRun(){return connected&&!reducedMotion.matches&&!document.hidden&&!overlayOpen();}
   function tick(now){frame=0;if(!canRun()){lastTime=0;return;}if(!lastTime)lastTime=now;const elapsed=now-lastTime;if(elapsed>=1000/30){lastTime=now;for(const p of particles)p.age+=Math.min(elapsed/1000,.1);particles=particles.filter(p=>p.age<1.6);draw();}frame=requestAnimationFrame(tick);}
   function schedule(){if(frame)cancelAnimationFrame(frame);frame=0;lastTime=0;if(canRun())frame=requestAnimationFrame(tick);}
   document.addEventListener('visibilitychange',()=>{followRope();clearTimeout(pollTimer);schedule();if(!document.hidden)poll();});
@@ -459,7 +460,7 @@ function startMeadow() {
   window.addEventListener('online',()=>poll());
   window.addEventListener('offline',()=>{connection(false);status('Offline for a moment. The shared meadow will reconnect when you are back.');});
   new ResizeObserver(resize).observe(canvas);
-  pauseLabel();controls();resize();poll();
+  controls();resize();poll();
 }
 
 function ellipse(c, x, y, rx, ry, color, angle = 0) {

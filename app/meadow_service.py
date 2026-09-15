@@ -176,15 +176,17 @@ class MeadowService:
         self._sync_presence(now)
         if now < self.critical_retry_at:
             return
-        if now - self.last_seen <= 15:
-            may_finish = bool(self.model.lassos or self.model.encounter)
+        if now - self.last_seen <= 15 or self.model.dog is not None:
+            may_finish = bool(self.model.lassos or self.model.encounter or self.model.dog)
             before = self.model.export_state() if may_finish else None
             results_before = {item['id'] for item in self.model.lasso_results}
             raided_before = self.model.raided_count
+            dog_before = self.model.dog is not None
             dirty_before = self.dirty
             self.model.update(elapsed)
             self.dirty = True
             completed = (self.model.raided_count != raided_before
+                         or (dog_before and self.model.dog is None)
                          or any(item['id'] not in results_before for item in self.model.lasso_results))
             if completed:
                 try:
@@ -289,6 +291,10 @@ class MeadowService:
             elif action == 'release':
                 entity = self.model.release_one()
                 code, ok = ('released', True) if entity else ('basket_empty', False)
+            elif action == 'dog':
+                seat_id = self._seat_for(owner)
+                code = self.model.release_dog(seat_id) if seat_id is not None else 'meadow_full'
+                ok = code == 'dog_released'
             else:
                 method, identity = {
                     'lasso': (self.model.cast_lasso, 'rabbitId'),
@@ -313,9 +319,11 @@ class MeadowService:
             self.receipts[payload['requestId']] = receipt
             while len(self.receipts) > 1000:
                 self.receipts.popitem(last=False)
-            if ok:
+            if ok or action == 'dog':
                 # Heartbeats only renew a short lease; they never move rabbits
                 # and need no SQLite write. Do not replay old leases on restart.
+                # Keep a dog's busy receipt durable too: retrying that request
+                # after expiry or restart must never release an unexpected dog.
                 self.model.receipts = [item for item in self.receipts.values() if not item.get('transient')]
                 if action in LEASE_ACTIONS:
                     self.dirty = True
@@ -382,7 +390,7 @@ def valid_payload(payload):
     if not isinstance(payload, dict):
         return False
     action = payload.get('action')
-    fields = {'carrot': {'x', 'y'}, 'release': set(), 'lasso': {'rabbitId'},
+    fields = {'carrot': {'x', 'y'}, 'release': set(), 'dog': set(), 'lasso': {'rabbitId'},
               'pull': {'lassoId'}, 'stop_pull': {'lassoId'}, 'cancel_lasso': {'lassoId'}}
     if not isinstance(action, str) or action not in fields:
         return False
@@ -449,7 +457,7 @@ async def meadow_action(request: Request):
     if not valid_payload(payload):
         return reply({'ok': False, 'code': 'invalid_action'}, 422)
     owner = player_owner(request)
-    if payload['action'] in LASSO_ACTIONS and owner is None:
+    if payload['action'] in LASSO_ACTIONS | {'dog'} and owner is None:
         return reply({'ok': False, 'code': 'player_header_required'}, 403)
     service = service_for(request)
     if service is None:
