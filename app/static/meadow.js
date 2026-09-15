@@ -1,13 +1,13 @@
-import { drawRabbit } from './rabbit-art.js?v=meadow16';
+import { drawRabbit } from './rabbit-art.js?v=meadow19';
 import { createAutoLassoPuller } from './lasso-pull.js?v=meadow16';
 import { createSnapshotBuffer, toWorldPoint } from './meadow-model.js?v=meadow16';
 import { seatName, seatPalette, recentSeatResult, seatResultMessage } from './meadow-seats.js?v=meadow16';
 
 import { drawCast, drawRetractingCast, drawLandingDust } from './meadow-cast.js?v=meadow16';
 import { drawWildlifeCues } from './meadow-cues.js?v=meadow16';
-import { drawBurrows, drawBurrowRabbit } from './meadow-burrows.js?v=meadow16';
+import { drawBurrows, drawBurrowRabbit } from './meadow-burrows.js?v=meadow19';
 
-import { paintLandscape, paintForeground, drawMeadowAtmosphere, rabbitRenderScale } from './meadow-scene.js?v=meadow16';
+import { paintLandscape, paintForeground, drawMeadowAtmosphere, rabbitRenderScale } from './meadow-scene.js?v=meadow19';
 
 import { drawPixelWildlife, drawPixelCarrot } from './meadow-sprites.js?v=meadow16';
 import { drawDog } from './meadow-dog.js?v=meadow16';
@@ -366,6 +366,7 @@ function startMeadow() {
     animals.sort((a,z)=>a.animal.y-z.animal.y);
     for(const {kind,animal} of animals){
       const pose=projected(animal);
+      pose.cosmeticIdle=!state.dog&&!state.encounter;
       if(reducedMotion.matches){pose.moving=false;pose.motionAmount=0;pose.hopProgress=0;}
       const time=reducedMotion.matches?0:state.time;
       if(kind==='dog')drawDog(ctx,pose,time);

@@ -4,8 +4,9 @@ import { createSeededRandom } from './meadow-model.js?v=meadow14';
 // resize; the only per-frame scenery work is four little stepped water ripples.
 const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
 const C={
-  grass:'#a5b574',grassLight:'#adbd7d',grassDeep:'#9aae6c',grassShade:'#90a262',
-  grassInk:'#819656',grassSpark:'#c2cb89',canopyDark:'#405d40',canopy:'#577648',
+  grass:'#a9b67a',grassLight:'#b4bf83',grassDeep:'#9aab6e',grassShade:'#909d66',
+  grassInk:'#81935b',grassSpark:'#c5cc91',castShadow:'#899360',shadowEdge:'#9da66e',
+  canopyDark:'#405d40',canopy:'#577648',
   canopyMid:'#6c8c50',canopyLight:'#839e59',leafLight:'#9eb567',wood:'#8d704b',
   woodDark:'#68563b',cream:'#e8d8a5',creamLight:'#f5e6ba',dirt:'#c5b383',
   dirtLight:'#d5c493',dirtEdge:'#a49768',water:'#6caa91',waterDark:'#478476',
@@ -33,7 +34,8 @@ function flower(p,x,y,color=C.flower){
   p.rect(x-3,y-3,9,3,color);p.rect(x,y-6,3,9,color);p.rect(x,y-3,3,3,'#c6994e');
 }
 function rock(p,x,y,k=1){
-  p.rect(x-9*k,y+3*k,27*k,6*k,C.grassShade);
+  p.rect(x-3*k,y+6*k,27*k,6*k,C.shadowEdge);
+  p.rect(x-6*k,y+3*k,27*k,6*k,C.castShadow);
   p.rect(x-12*k,y-3*k,27*k,9*k,C.stoneDark);
   p.rect(x-6*k,y-9*k,15*k,3*k,C.stoneDark);
   p.rect(x-9*k,y-6*k,21*k,9*k,C.stone);
@@ -43,7 +45,9 @@ function rock(p,x,y,k=1){
 }
 function crown(p,x,y,s=1){
   // A stepped silhouette with solid shadow, midtone and lit leaf clusters.
-  p.rect(x-36*s,y+15*s,75*s,12*s,C.grassShade);
+  p.rect(x-21*s,y+24*s,84*s,12*s,C.shadowEdge);
+  p.rect(x-30*s,y+18*s,81*s,12*s,C.grassShade);
+  p.rect(x-33*s,y+15*s,72*s,9*s,C.castShadow);
   p.rect(x-45*s,y-21*s,87*s,42*s,C.canopyDark);
   p.rect(x-33*s,y-36*s,63*s,66*s,C.canopyDark);
   p.rect(x-15*s,y-45*s,30*s,9*s,C.canopyDark);
@@ -99,19 +103,76 @@ function pond(p,c){
 
 export function rabbitRenderScale(worldY){return .74+.30*clamp(worldY/600,0,1);}
 
+// Uneven terraces make one patch read as low grass, not a rectangular tile.
+function grassPatch(p,x,y,rx,ry,color){
+  for(const [i,left,right] of [[0,.38,.51],[1,.70,.82],[2,.92,1],[3,1,.94],[4,.80,.73],[5,.44,.46]]){
+    p.rect(x-rx*left,y-ry+i*ry/3,rx*(left+right),ry/3+3,color);
+  }
+}
+
+// Decorations stay around the edges of the clearing and away from active holes.
+function plantedGround(x,y){
+  if(x<18||x>982||y<90||y>508)return false;
+  if(((x-825)/125)**2+((y-135)/86)**2<1)return false;
+  if(((x-485)/145)**2+((y-328)/112)**2<1)return false;
+  if((x<125||x>875)&&y>203&&y<447)return false;
+  return ![[260,270],[540,205],[760,350],[340,440],[660,460]].some(([bx,by])=>((x-bx)/62)**2+((y-by)/42)**2<1);
+}
+
+function planting(p,random,{compact=false}={}){
+  // Each patch shares a center, so stems, stones and flowers belong together.
+  const patches=[
+    [175,174,49,25,3],[386,114,67,20,2],[659,286,46,26,3],
+    [197,460,55,26,3],[791,454,53,29,3],[951,478,26,20,2],
+    [47,141,24,27,0],
+  ];
+  for(const [cx,cy,rx,ry,blooms] of patches){
+    grassPatch(p,cx,cy+3,rx*.80,ry*.58,C.grassDeep);
+    const points=[];
+    for(let i=0;i<13;i++){
+      const angle=random()*Math.PI*2,radius=Math.sqrt(random());
+      const x=cx+Math.cos(angle)*rx*radius,y=cy+Math.sin(angle)*ry*radius;
+      if(!plantedGround(x,y))continue;
+      if(compact&&i%2)continue;
+      points.push({x,y,i});
+    }
+    for(const {x,y,i} of points){
+      p.rect(x+3,y+3,6,3,i%3?C.grassDeep:C.grassShade);
+      if(i%3===0)tuft(p,x,y,.52+(i%2)*.16,i%2?C.grassInk:C.grassSpark);
+      else p.rect(x,y,3+(i%2)*3,3,i%3?C.grassDeep:C.grassSpark);
+    }
+    let flowers=0;
+    for(const {x,y} of points){
+      if(flowers>=Math.ceil(blooms*(compact?.65:1)))break;
+      tuft(p,x-6,y+9,.5,C.grassInk);
+      flower(p,x,y,flowers%3===0?C.pink:C.flower);flowers++;
+    }
+  }
+  // Small stones form two planted groups rather than littering the play area.
+  rock(p,155,184,.55);rock(p,169,190,.32);
+  rock(p,815,466,.60);if(!compact)rock(p,830,470,.34);
+  // A little worn texture at patch boundaries; the center remains mostly quiet.
+  for(let i=0;i<42;i++){
+    const x=145+random()*710,y=112+random()*387;
+    if(!plantedGround(x,y)||(compact&&i%2))continue;
+    p.rect(x,y,3+(i%5===0?3:0),3,i%4?C.grassDeep:C.grassSpark);
+  }
+}
+
 export function paintLandscape(c,W,H){
   c.save();c.imageSmoothingEnabled=false;
-  const p=pixelPainter(c,W,H),random=createSeededRandom(4817);
+  const p=pixelPainter(c,W,H),random=createSeededRandom(4817),compact=W<700;
   p.rect(0,0,1000,600,C.grass);
-  // Broad, quiet grass tiles leave the playing field easy to read.
-  for(const [x,y,w,h] of [[0,54,310,72],[192,99,423,60],[312,153,372,75],[75,225,339,93],[192,297,432,63],[399,378,414,66],[57,420,300,63],[294,474,339,48],[696,246,279,69]]){
-    p.rect(x,y,w,h,C.grassLight);
-    p.rect(x+24,y-12,w-66,12,C.grassLight);
-    p.rect(x+42,y+h,w-99,12,C.grassLight);
+  // A connected sunlit clearing is surrounded by broad, quieter shaded banks.
+  grassPatch(p,466,292,315,176,C.grassLight);
+  grassPatch(p,192,135,237,49,C.grassLight);
+  grassPatch(p,757,348,191,83,C.grassLight);
+  for(const [x,y,rx,ry] of [[10,165,131,79],[12,363,119,94],[988,361,125,115],[797,224,142,28],[493,584,590,69]]){
+    grassPatch(p,x,y,rx,ry,C.grassDeep);
   }
-  for(const [x,y,w,h] of [[0,135,129,54],[0,333,159,54],[765,399,235,87],[708,201,292,24],[0,531,1000,69]]){
-    p.rect(x,y,w,h,C.grassDeep);p.rect(x+24,y+h,w-48,12,C.grassDeep);
-  }
+  // Light falls from the upper left. Cast shadows extend a few pixels rightward.
+  grassPatch(p,17,86,139,30,C.shadowEdge);
+  grassPatch(p,958,65,108,37,C.shadowEdge);
   // A narrow, stair-stepped dirt path bends through the lower margin.
   const path=[[111,597,27,36],[129,579,30,39],[150,561,33,36],[174,546,39,33],[204,534,42,30],[237,525,51,27],[279,519,72,27],[342,516,81,27],[414,519,87,27],[492,525,87,27],[570,531,99,27],[660,534,105,27],[756,540,81,27],[828,549,81,27],[900,561,108,27]];
   for(const [x,y,w,h] of path)p.rect(x-3,y-3,w+6,h+6,C.dirtEdge);
@@ -121,19 +182,13 @@ export function paintLandscape(c,W,H){
     const [x,y,w,h]=path[Math.floor(random()*path.length)];
     p.rect(x+random()*w,y+6+random()*(h-12),3+(i%3)*3,3,i%3?C.dirt:C.dirtEdge);
   }
-  // Small two-pixel flecks and occasional tufts supply texture without noise.
-  for(let i=0;i<650;i++){
-    const x=12+random()*976,y=60+random()*530;
-    if(y>514||(((x-825)/121)**2+((y-135)/80)**2<1))continue;
-    p.rect(x,y,i%6===0?6:3,3,i%3?C.grassDeep:C.grassSpark);
-  }
-  for(let i=0;i<86;i++){
-    const x=30+random()*940,y=96+random()*416;
-    if(((x-825)/122)**2+((y-135)/82)**2<1)continue;
-    tuft(p,x,y,.55+(i%3)*.16,i%3?C.grassInk:C.grassSpark);
-  }
+  planting(p,random,{compact});
   // Cream fence, dark joinery, and square post caps.
-  p.rect(72,72,594,6,C.grassShade);
+  p.rect(78,81,594,6,C.shadowEdge);
+  p.rect(75,75,594,6,C.grassShade);
+  for(let x=84;x<=654;x+=39){
+    p.rect(x+6,78,9,9,C.grassShade);p.rect(x+12,87,9,6,C.shadowEdge);
+  }
   for(const y of [51,66]){
     p.rect(72,y+3,594,6,C.wood);p.rect(72,y,594,6,C.cream);
     p.rect(75,y,588,3,C.creamLight);
@@ -146,13 +201,6 @@ export function paintLandscape(c,W,H){
   pond(p,c);
   // Trees frame the clearing. Their solid leaf tiles never cover seat rows.
   for(const [x,y,s] of [[-12,0,1.65],[64,-27,1.55],[153,-45,1.50],[245,-48,1.50],[338,-51,1.45],[426,-48,1.50],[518,-45,1.40],[615,-39,1.45],[704,-35,1.55],[797,-33,1.5],[892,-27,1.55],[987,-12,1.7],[-35,82,1.2],[1031,63,1.25],[-42,377,.9],[1042,405,1.05],[-21,592,1.1],[1016,592,1.25]])crown(p,x,y,s);
-  // A few handmade flower patches; the burrows and center remain uncluttered.
-  for(const [x,y,n] of [[171,191,4],[289,358,3],[655,321,4],[784,449,3],[173,486,3],[478,106,3]]){
-    for(let i=0;i<n;i++){
-      const xx=x+(random()-.5)*39,yy=y+(random()-.5)*18;
-      tuft(p,xx-6,yy+9,.55,C.grassInk);flower(p,xx,yy,i%3===0?C.pink:C.flower);
-    }
-  }
   // Low edge plants read as a planted border, not an opaque overlay.
   for(const [x,y] of [[32,112],[956,195],[18,463],[971,481],[56,565],[935,582]]){
     tuft(p,x,y,1.5,C.canopyMid);tuft(p,x+12,y+3,1,C.canopy);

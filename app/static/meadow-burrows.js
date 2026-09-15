@@ -22,10 +22,13 @@ function steppedOval(c,x,y,rows,color){
 function rim(c,x,y){
   // Five square steps form the front earth wall, which covers the sinking rabbit.
   for(const [dx,dy,w,h] of [[-30,0,6,9],[-27,6,12,6],[-18,9,36,6],[15,6,12,6],[24,0,6,9]])
-    rect(c,x+dx,y+dy,w,h,'#8d7951');
+    rect(c,x+dx,y+dy,w,h,'#84714b');
   for(const [dx,dy,w,h] of [[-30,0,3,6],[-27,6,12,3],[-18,9,36,3],[15,6,12,3],[27,0,3,6]])
     rect(c,x+dx,y+dy,w,h,'#c5b383');
   rect(c,x-24,y+6,9,3,'#e0cc99');rect(c,x-15,y+9,15,3,'#d5c493');
+  rect(c,x+18,y+9,9,3,'#625a40');rect(c,x-12,y+12,6,3,'#a28c60');
+  // Short turf lips make the opening feel cut into the mound, not painted on it.
+  rect(c,x-33,y,6,3,'#8ca267');rect(c,x+27,y,6,3,'#6f8956');
 }
 function grassClump(c,x,y,size,sway){
   const shift=Math.abs(sway)>.5?Math.sign(sway)*3:0;
@@ -47,16 +50,24 @@ export function drawBurrows(c,state,{width,height,reducedMotion=false}) {
     const entering=state.rabbits.some(r=>r.burrow?.entryId===hole.id&&r.burrow.phase==='entering');
     const emerging=state.rabbits.some(r=>r.burrow?.exitId===hole.id&&r.burrow.phase==='emerging');
     c.save();c.imageSmoothingEnabled=false;
-    // Flat stepped soil bands match the meadow's three-unit pixel grid.
-    steppedOval(c,x,y,[[-27,-15,51,36],[-36,-9,69,27],[-39,0,78,12]],'#90a262');
-    steppedOval(c,x,y,[[-21,-15,42,30],[-30,-12,60,30],[-36,-6,72,18]],'#a49768');
-    steppedOval(c,x,y,[[-21,-15,39,27],[-30,-9,60,21],[-33,-3,66,12]],'#c5b383');
-    rect(c,x-24,y-12,39,3,'#d5c493');rect(c,x-30,y-6,12,3,'#e0cc99');
-    rect(c,x+18,y-9,9,3,'#d5c493');
+    // Low grassy terraces catch light at the upper left. A soil face and a
+    // short lower-right shadow give depth without enlarging the actual opening.
+    c.save();c.globalAlpha*=.17;
+    steppedOval(c,x+6,y+6,[[-30,0,69,12],[-21,12,54,6]],'#384d35');
+    c.restore();
+    steppedOval(c,x,y,[[-24,-24,48,42],[-33,-18,66,36],[-39,-9,78,21],[-30,12,60,9]],'#718953');
+    steppedOval(c,x,y,[[-30,-9,63,24],[-36,-3,72,12],[-24,12,51,6]],'#a18b5b');
+    rect(c,x+30,y-6,6,15,'#7b6c47');rect(c,x+21,y+12,9,6,'#7b6c47');
+    rect(c,x-30,y-3,12,9,'#c5b383');rect(c,x-24,y+9,12,6,'#c5b383');
+    // Broad, quiet turf shapes; the small broken edge exposes roots and soil.
+    steppedOval(c,x,y,[[-18,-27,36,9],[-27,-24,54,12],[-33,-18,66,12],[-36,-12,72,6]],'#8fa368');
+    rect(c,x-18,y-27,30,3,'#b2bc7d');rect(c,x-27,y-21,30,3,'#a5b474');
+    rect(c,x-33,y-15,21,3,'#a5b474');rect(c,x+24,y-18,9,9,'#79945b');
+    rect(c,x-30,y-6,9,3,'#a0af70');rect(c,x+21,y-6,9,3,'#6e8853');
+    rect(c,x-33,y,3,6,'#ddc68d');rect(c,x+30,y+3,3,6,'#b59e6b');
     const sway=(entering||emerging)&&!reducedMotion?Math.sin(state.time*9+hole.id)*1.1:0;
-    grassClump(c,x-29,y-7,.85,sway);
-    grassClump(c,x+25,y-11,.72,-sway*.7);
-    grassClump(c,x+34,y+1,.6,sway*.5);
+    grassClump(c,x-26,y-18,.72,sway);
+    grassClump(c,x+28,y-10,.6,-sway*.7);
     // The opening retains its original 54-by-20 logical footprint.
     steppedOval(c,x,y,[[-15,-9,30,18],[-24,-6,48,12],[-27,-3,54,6]],'#685b3d');
     steppedOval(c,x,y,[[-15,-6,30,12],[-24,-3,48,9]],'#35452f');
@@ -65,15 +76,28 @@ export function drawBurrows(c,state,{width,height,reducedMotion=false}) {
     for(const [dx,dy] of [[-33,9],[30,9],[-21,15]]){
       rect(c,x+dx,y+dy,6,3,'#a49768');rect(c,x+dx,y+dy-3,3,3,'#d5c493');
     }
-    flower(c,x-35,y-10);
-    if(hole.id%2)flower(c,x+32,y-14);
+    if(hole.id%2)flower(c,x-33,y-15);
     c.restore();
+  }
+}
+function entryDirt(c,rabbit){
+  const progress=clamp(1-rabbit.burrow.remaining/burrowDurations.entering);
+  // Five short, staggered crumbs are tied to the shared phase, so no particle
+  // collection or per-frame randomness is needed. They settle before entry ends.
+  for(let i=0;i<5;i++){
+    const age=(progress-.16-i*.065)/.48;
+    if(age<=0||age>=1)continue;
+    const side=(i+rabbit.id)%2?1:-1;
+    const reach=15+(rabbit.id+i*7)%12;
+    const x=rabbit.x+side*(12+reach*age);
+    const y=rabbit.y+3-(9+(i%3)*3)*4*age*(1-age)+age*6;
+    rect(c,x,y,3,3,i%2?'#d7bd84':'#a28c60');
   }
 }
 export function drawBurrowRabbit(c,rabbit,time,drawRabbit,{reducedMotion=false}={}) {
   const pose=burrowPose(rabbit,reducedMotion);
   if(!pose.visible)return;
-  if(!rabbit.burrow){drawRabbit(c,rabbit,time);return;}
+  if(!rabbit.burrow){drawRabbit(c,rabbit,time,{reducedMotion});return;}
   c.save();c.globalAlpha=pose.opacity;
   // Ears disappear last and emerge first through the same stepped front edge.
   const x=snap(rabbit.x),y=snap(rabbit.y);
@@ -82,6 +106,7 @@ export function drawBurrowRabbit(c,rabbit,time,drawRabbit,{reducedMotion=false}=
   c.rect(x-27,y,54,3);c.rect(x-24,y+3,48,3);c.rect(x-15,y+6,30,3);
   c.clip();
   const depth=pose.depth*(rabbit.adult?77:59)*(rabbit.renderScale||1);
-  drawRabbit(c,{...rabbit,y:rabbit.y+depth,moving:false,motionAmount:0,hopProgress:0},time,{shadow:false});
+  drawRabbit(c,{...rabbit,y:rabbit.y+depth,moving:false,motionAmount:0,hopProgress:0},time,{shadow:false,idle:false,reducedMotion});
   c.restore();rim(c,rabbit.x,rabbit.y);
+  if(!reducedMotion&&rabbit.burrow.phase==='entering')entryDirt(c,rabbit);
 }
