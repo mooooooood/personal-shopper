@@ -1,7 +1,7 @@
 import { drawRabbit } from './rabbit-art.js?v=meadow16';
 import { createAutoLassoPuller } from './lasso-pull.js?v=meadow16';
 import { createSnapshotBuffer, toWorldPoint } from './meadow-model.js?v=meadow16';
-import { seatName, seatPalette, seatActivity, recentSeatResult, seatResultMessage } from './meadow-seats.js?v=meadow16';
+import { seatName, seatPalette, recentSeatResult, seatResultMessage } from './meadow-seats.js?v=meadow16';
 
 import { drawCast, drawRetractingCast, drawLandingDust } from './meadow-cast.js?v=meadow16';
 import { drawWildlifeCues } from './meadow-cues.js?v=meadow16';
@@ -70,8 +70,7 @@ function startMeadow() {
   let frame = 0, lastTime = 0, particles = [];
   let cursor = {x:500, y:300, visible:false}, keyboardRing = false;
   let connected = false, pending = false, polling = false, pollTimer = 0, failures = 0;
-  let previousNumbers = '', rendered = null, seatFeed = null;
-  const seatRows = new Map();
+  let rendered = null, seatFeed = null;
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   const background = document.createElement('canvas');
   const b = background.getContext('2d');
@@ -105,20 +104,14 @@ function startMeadow() {
       connected&&!pending&&!document.hidden&&!overlayOpen());
   }
   function connection(ok) {
+    if(ok && !connected && rendered)status('Back in the shared meadow.');
     connected = ok;
     followRope();
-    const indicator = byId('connection-status');
-    const label = ok ? 'Shared meadow · connected' : 'Reconnecting…';
-    if (indicator.textContent !== label) indicator.textContent = label;
-    indicator.dataset.state = ok ? 'connected' : 'offline';
-    if(!ok&&buffer.latest?.seats){
-      byId('online-status').textContent='Players · reconnecting';
-      byId('seat-status').textContent='Checking your seat…';
-    }
+    if(!ok)byId('seat-status').textContent='Connection lost. Rejoining the meadow…';
     controls();
     schedule();
   }
-  function counters(state) {
+  function updateIndicators(state) {
     if (!state) return;
     presence(state);
     const dogButton=byId('release-dog'),dogLabel=byId('dog-label');
@@ -132,44 +125,12 @@ function startMeadow() {
       const label=own.phase==='casting'?'Casting · watch the landing':`${own.pulling?'Reeling in':'Rope ready'} · ${percent}% · ${Math.ceil(own.remaining)}s`;
       if(byId('lasso-label').textContent!==label)byId('lasso-label').textContent=label;
     }
-    const numbers = `${state.rabbits.length}/${state.bornCount}/${state.basket.length}`;
-    if (numbers !== previousNumbers) {
-      byId('rabbit-count').textContent = state.rabbits.length;
-      byId('born-count').textContent = state.bornCount;
-      byId('basket-count').textContent = state.basket.length;
-      previousNumbers = numbers;
-    }
-    const encounter = state.encounter;
-    const indicator = byId('wildlife-status');
-    if (indicator) {
-      const animal = encounter?.kind === 'eagle' ? 'Eagle' : 'Wolf';
-      const label = encounter ? (encounter.phase === 'warning' ? `${animal} nearby · basket is safe`
-        : encounter.phase === 'chasing' ? `${animal} approaching · shelter a rabbit`
-        : encounter.carrying ? `${animal} carried one rabbit away` : `${animal} is leaving empty-handed`)
-        : state.raidedCount ? `${state.raidedCount} carried away · basket is safe` : 'A quiet moment in the meadow';
-      if (indicator.textContent !== label) indicator.textContent = label;
-      indicator.dataset.kind = encounter?.kind || 'calm';
-    }
   }
   function presence(state) {
     if(!state.seats)return;
     const text=(node,value)=>{if(node.textContent!==value)node.textContent=value;};
-    if(connected){
-      text(byId('online-status'),`${state.onlineCount} / 8 seats online`);
-      text(byId('seat-status'),state.mySeatId==null?'Watching · joining when a seat opens':`You are at ${seatName(state.mySeatId).toLowerCase()}`);
-    }
-    for(const seat of state.seats){
-      let row=seatRows.get(seat.id);
-      if(!row){
-        const node=document.createElement('li'),name=document.createElement('strong'),activity=document.createElement('span');
-        node.append(name,activity);node.style.setProperty('--seat-color',seatPalette(seat.id)[0]);
-        byId('seat-list').append(node);row={node,name,activity};seatRows.set(seat.id,row);
-      }
-      const mine=seat.id===state.mySeatId;
-      row.node.dataset.own=String(mine);row.node.dataset.state=seat.status;
-      text(row.name,`${seatName(seat.id)}${mine?' · You':''}`);
-      text(row.activity,seatActivity(seat,state));
-    }
+    if(connected)text(byId('seat-status'),state.mySeatId==null
+      ? 'Watching. You will join when a seat opens.' : `You are at ${seatName(state.mySeatId).toLowerCase()}.`);
     const show=seatFeed&&state.time-seatFeed.time<8&&state.time>=seatFeed.time;
     byId('seat-feed').hidden=!show;
     if(show)text(byId('seat-feed'),seatResultMessage(seatFeed));
@@ -382,7 +343,7 @@ function startMeadow() {
     const state=buffer.sample(performance.now());
     if (!state) return;
     rendered=state;
-    counters(state);
+    updateIndicators(state);
     drawMeadowAtmosphere(ctx,W,H,state.time,{reducedMotion:reducedMotion.matches});
     drawBurrows(ctx,state,{width:W,height:H,reducedMotion:reducedMotion.matches});
     drawWildlifeCues(ctx,state,{width:W,height:H,reducedMotion:reducedMotion.matches});

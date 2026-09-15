@@ -79,6 +79,8 @@ class SiteTests(unittest.TestCase):
         self.assertIn('id="about-dialog"', page)
         self.assertIn('id="meadow-help"', page)
         self.assertNotIn('id="help-dialog"', page)
+        for removed in ['meadow-heading', 'rabbit-count', 'born-count', 'basket-count', 'seat-roster', 'online-status']:
+            self.assertNotIn(removed, page)
         self.assertNotIn('href="/static/style.css', page)
 
     def test_home_preserves_and_escapes_personal_intro(self):

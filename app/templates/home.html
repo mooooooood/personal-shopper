@@ -7,33 +7,17 @@
   <meta name="description" content="{{ site.description }}">
   <meta name="theme-color" content="#a5b574">
   {% if base_url %}<link rel="canonical" href="{{ base_url }}/">{% endif %}
-  <link rel="stylesheet" href="/static/meadow.css?v=meadow16">
+  <link rel="stylesheet" href="/static/meadow.css?v=meadow17">
 </head>
 <body>
   <main id="main" class="meadow-world" aria-label="The rabbit meadow">
+    <h1 class="visually-hidden">Rabbit meadow</h1>
     <div id="meadow-stage" class="meadow-stage">
       <canvas id="meadow-canvas" width="1000" height="600" tabindex="0" aria-label="Interactive rabbit meadow" aria-describedby="meadow-help seat-status">A shared two-dimensional meadow with eight catching seats, colourful baby rabbits and occasional visits from an eagle or a wolf. Watch other players cast their ropes and reel rabbits towards their seats. Everyone visits the same rabbits. Your browser needs canvas support to display the meadow.</canvas>
       <div id="meadow-loading" class="meadow-loading"><span class="loading-mark" aria-hidden="true">♧</span><span>Opening the garden gate…</span></div>
     </div>
 
     <div class="hud-top">
-      <section class="meadow-heading glass" aria-labelledby="meadow-title">
-        <div class="meadow-name"><svg class="rabbit-mark" aria-hidden="true" width="28" height="35" viewBox="0 0 28 35" fill="none"><path d="M5 1h5v13h8V1h5v17h3v13h-4v3H6v-3H2V18h3V1Z" fill="currentColor"/><path d="M8 22h3v3H8zm9 0h3v3h-3z" fill="#f7edcc"/></svg><div><p class="tiny-label">ONE SHARED LITTLE WORLD</p><h1 id="meadow-title">Rabbit meadow</h1></div></div>
-        <div class="meadow-stats" aria-label="Meadow population">
-          <span><strong id="rabbit-count">0</strong><small>rabbits</small></span>
-          <span><strong id="born-count">0</strong><small>babies born</small></span>
-          <span><strong id="basket-count">0</strong><small>shared basket</small></span>
-        </div>
-        <div class="players-hud">
-          <details id="seat-roster" class="seat-roster">
-            <summary id="online-status">0 / 8 seats online</summary>
-            <ol id="seat-list" class="seat-list" aria-label="The eight catching seats"></ol>
-          </details>
-          <p id="seat-status" class="seat-status">Joining a seat…</p>
-        </div>
-        <span id="connection-status" class="connection-status" role="status" aria-live="polite" aria-atomic="true" data-state="connecting">Connecting…</span>
-        <span id="wildlife-status" class="wildlife-status" role="status" aria-live="polite" aria-atomic="true" data-kind="calm">A quiet moment in the meadow</span>
-      </section>
       <div class="hud-links">
         <button class="about-button glass" type="button" id="open-about" aria-haspopup="dialog" aria-controls="about-dialog" aria-expanded="false"><span class="about-label">About &amp; contact</span><span class="about-hint" aria-hidden="true">WHATSAPP <span>↗</span></span></button>
       </div>
@@ -55,6 +39,7 @@
         </div>
       </div>
     </div>
+    <p id="seat-status" class="visually-hidden">Joining a seat…</p>
     <p id="meadow-help" class="visually-hidden">Choose Watch, Carrot or Lasso, then tap the meadow. A landed lasso reels in automatically. Let dog out sends a shared dog to chase rabbits for 20 seconds. Use the arrow keys to aim, W / C / N to choose a tool, and Enter or Space to use it.</p>
     <noscript><section class="no-script-note"><h2>Your personal shopper in China.</h2><p>{{ site.about }}</p><a href="{{ site.contact.whatsapp_url }}" target="_blank" rel="noopener noreferrer">Message me on WhatsApp · {{ site.contact.whatsapp }}</a></section></noscript>
   </main>
@@ -96,6 +81,6 @@
     </div>
   </dialog>
 
-  <script type="module" src="/static/meadow.js?v=meadow16"></script>
+  <script type="module" src="/static/meadow.js?v=meadow17"></script>
 </body>
 </html>
