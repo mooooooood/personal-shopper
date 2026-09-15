@@ -277,16 +277,18 @@ function startMeadow() {
     } finally { pending = false; followRope(); controls(); }
   }
   function chooseTool(next) {
-    if (next !== 'watch' && (!connected || pending)) return;
-    if(next==='net'&&buffer.latest?.seats&&buffer.latest.mySeatId==null){
+    const selected = next === tool ? null : next;
+    if (selected !== null && (!connected || pending)) return;
+    if(selected==='net'&&buffer.latest?.seats&&buffer.latest.mySeatId==null){
       status('All eight seats are taken. You can watch and leave carrots while a seat opens.');return;
     }
-    tool = next;
-    for (const name of ['watch','carrot','net']) byId(`tool-${name}`).setAttribute('aria-pressed', String(name === tool));
-    canvas.setAttribute('aria-label', `Shared rabbit meadow. ${tool === 'net' ? 'Lasso' : tool === 'carrot' ? 'Carrot' : 'Watch'} selected. Arrow keys move the ring; Enter or Space uses the tool. A roped rabbit reels in automatically.`);
-    status({watch:'One meadow, shared by everyone. Take a little time to watch it grow.',
-      carrot:'Tap the grass to leave a carrot. Other visitors will see it too.',
-      net:'Aim near a rabbit and tap once. Lead its hop; a landed loop reels in automatically.'}[tool]);
+    tool = selected;
+    for (const name of ['carrot','net']) byId(`tool-${name}`).setAttribute('aria-pressed', String(name === tool));
+    const selection = tool ? `${tool==='net'?'Lasso':'Carrot'} selected.` : 'No tool selected. Tap a rabbit to say hello.';
+    canvas.setAttribute('aria-label', `Shared rabbit meadow. ${selection} Arrow keys move the ring; Enter or Space uses the tool. C / N toggle tools; Escape puts the tool away.`);
+    status(tool ? {carrot:'Tap the grass to leave a carrot. Select Carrot again to put it away.',
+      net:'Aim near a rabbit and tap once. A landed loop reels in automatically. Select Lasso again to put it away.'}[tool]
+      : 'No tool selected. Tap a rabbit to say hello.');
     draw();
   }
   function point(event) {
@@ -295,7 +297,6 @@ function startMeadow() {
   }
   function useTool(position) {
     if (!connected || pending || !rendered) return;
-    if(!tool){status('Choose Watch, Carrot or Lasso — or let the dog out.');return;}
     if(tool==='net'&&buffer.latest?.seats&&buffer.latest.mySeatId==null){
       status('You are watching for now. A free seat will be assigned automatically.');return;
     }
@@ -320,7 +321,7 @@ function startMeadow() {
       draw();
     }
   }
-  for (const name of ['watch','carrot','net']) byId(`tool-${name}`).addEventListener('click',()=>chooseTool(name));
+  for (const name of ['carrot','net']) byId(`tool-${name}`).addEventListener('click',()=>chooseTool(name));
   canvas.addEventListener('pointermove',event=>{cursor={...point(event),visible:event.pointerType!=='touch'};keyboardRing=false;if(!canRun())draw();});
   canvas.addEventListener('pointerleave',()=>{cursor.visible=false;if(!canRun())draw();});
   canvas.addEventListener('click',event=>{cursor={...point(event),visible:false};keyboardRing=false;useTool(cursor);});
@@ -330,7 +331,8 @@ function startMeadow() {
     const moves={ArrowLeft:[-35,0],ArrowRight:[35,0],ArrowUp:[0,-35],ArrowDown:[0,35]};
     if(moves[event.key]){event.preventDefault();cursor.x=Math.max(0,Math.min(W,cursor.x+moves[event.key][0]));cursor.y=Math.max(0,Math.min(H,cursor.y+moves[event.key][1]));keyboardRing=true;draw();}
     else if(event.key==='Enter'||event.key===' '){event.preventDefault();if(!event.repeat)useTool(cursor);}
-    else if(['w','c','n'].includes(event.key.toLowerCase()))chooseTool({w:'watch',c:'carrot',n:'net'}[event.key.toLowerCase()]);
+    else if(event.key==='Escape'){event.preventDefault();chooseTool(null);}
+    else if(!event.repeat&&['c','n'].includes(event.key.toLowerCase()))chooseTool({c:'carrot',n:'net'}[event.key.toLowerCase()]);
   });
   byId('cancel-lasso').addEventListener('click',()=>{const own=ownLasso(buffer.latest);if(own)action({action:'cancel_lasso',lassoId:own.id});});
   byId('release-dog').addEventListener('click',()=>action({action:'dog'}));
@@ -395,7 +397,7 @@ function startMeadow() {
     if(!reducedMotion.matches)drawButterfly(ctx,W*(.32+Math.sin(state.time*.22)*.105),H*(.157+Math.sin(state.time*.39)*.037),state.time,'#e9b891');
     if(!reducedMotion.matches)drawButterfly(ctx,W*(.88+Math.sin(state.time*.27+3)*.038),H*(.688+Math.sin(state.time*.48)*.05),state.time+2,'#fbf4c8');
     ctx.drawImage(foreground,0,0);
-    if((cursor.visible&&tool||keyboardRing)&&connected){ctx.strokeStyle='#426947';ctx.lineWidth=2;ctx.setLineDash([5,5]);ctx.beginPath();ctx.ellipse(cursor.x,cursor.y,tool==='net'?31:24,tool==='net'?22:16,0,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);if(tool==='carrot')drawCarrot(ctx,cursor.x+20,cursor.y-22,.8);if(tool==='net')drawLasso(ctx,cursor.x+15,cursor.y-24);if(tool==='watch')heart(ctx,cursor.x+16,cursor.y-25,6,'#d4828f');}
+    if((cursor.visible&&tool||keyboardRing)&&connected){ctx.strokeStyle='#426947';ctx.lineWidth=2;ctx.setLineDash([5,5]);ctx.beginPath();ctx.ellipse(cursor.x,cursor.y,tool==='net'?31:24,tool==='net'?22:16,0,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);if(tool==='carrot')drawCarrot(ctx,cursor.x+20,cursor.y-22,.8);if(tool==='net')drawLasso(ctx,cursor.x+15,cursor.y-24);if(!tool)heart(ctx,cursor.x+16,cursor.y-25,6,'#d4828f');}
 
   }
   function resize() {

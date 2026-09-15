@@ -59,7 +59,7 @@
 @media(max-width:360px){.about-button{width:114px;padding:10px}.about-label{font-size:11px}.about-hint{font-size:7px}}
 @media(prefers-reduced-motion:reduce){.about-button{animation:none!important}.about-button:hover,.about-button:focus-visible{transform:none}}
 
-/* Four simple actions, with no secondary management row. */
+/* Three simple actions, with no secondary management row. */
 .meadow-toolbar{padding:8px}.meadow-tools{gap:5px}.meadow-tools button{min-height:53px}.meadow-tools .dog-button{color:#6b502c}.dog-button[data-active="true"]{background:#edddb0;border-color:#b99b60;opacity:1!important;color:#705431;cursor:default}.dog-button #dog-label{min-width:81px}
-@media(max-width:560px){.meadow-toolbar{width:min(410px,calc(100vw - 26px));padding:7px}.meadow-tools{gap:3px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));width:100%}.meadow-tools button{min-width:0;min-height:62px;padding:8px 2px;font-size:10px;gap:7px;flex-direction:column}.meadow-tools button svg{width:22px;height:22px}.dog-button #dog-label{min-width:0}.meadow-status{min-height:32px}}
+@media(max-width:560px){.meadow-toolbar{width:min(340px,calc(100vw - 26px));padding:7px}.meadow-tools{gap:3px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%}.meadow-tools button{min-width:0;min-height:62px;padding:8px 2px;font-size:10px;gap:7px;flex-direction:column}.meadow-tools button svg{width:22px;height:22px}.dog-button #dog-label{min-width:0}.meadow-status{min-height:32px}}
 @media(max-width:360px){.meadow-tools button{font-size:9px;padding:7px 1px}.meadow-toolbar{width:calc(100vw - 20px)}}

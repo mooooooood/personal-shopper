@@ -71,11 +71,13 @@ class SiteTests(unittest.TestCase):
             response = self.client.get('/static/' + asset)
             self.assertEqual(response.status_code, 200, asset)
             self.assertIn(media_type, response.headers['content-type'], asset)
-        for control in ['tool-watch', 'tool-carrot', 'tool-net', 'release-dog', 'open-about', 'close-about']:
+        for control in ['tool-carrot', 'tool-net', 'release-dog', 'open-about', 'close-about']:
             self.assertIn('id="' + control + '"', page)
         for removed in ['pause-meadow', 'release-rabbit', 'reset-meadow']:
             self.assertNotIn('id="'+removed+'"', page)
-        self.assertIn('id="tool-watch" aria-pressed="false"', page)
+        self.assertNotIn('id="tool-watch"', page)
+        for control in ['tool-carrot', 'tool-net']:
+            self.assertIn('id="'+control+'" aria-pressed="false"', page)
         self.assertIn('id="about-dialog"', page)
         self.assertIn('id="meadow-help"', page)
         self.assertNotIn('id="help-dialog"', page)
