@@ -176,16 +176,20 @@ class MeadowService:
         self._sync_presence(now)
         if now < self.critical_retry_at:
             return
-        if now - self.last_seen <= 15 or self.model.dog is not None:
-            may_finish = bool(self.model.lassos or self.model.encounter or self.model.dog)
+        if now - self.last_seen <= 15 or self.model.dog is not None or self.model.surprise is not None:
+            may_finish = bool(self.model.lassos or self.model.encounter or self.model.dog
+                              or self.model.surprise or self.model._next_surprise_in <= elapsed)
             before = self.model.export_state() if may_finish else None
             results_before = {item['id'] for item in self.model.lasso_results}
             raided_before = self.model.raided_count
             dog_before = self.model.dog is not None
+            surprise_before = (self.model.surprise["id"], self.model.surprise["_milestone"]) if self.model.surprise else None
             dirty_before = self.dirty
-            self.model.update(elapsed)
+            self.model.update(elapsed, schedule_surprises=now - self.last_seen <= 15)
+            surprise_after = (self.model.surprise["id"], self.model.surprise["_milestone"]) if self.model.surprise else None
             self.dirty = True
-            completed = (self.model.raided_count != raided_before
+            completed = (surprise_before != surprise_after
+                         or self.model.raided_count != raided_before
                          or (dog_before and self.model.dog is None)
                          or any(item['id'] not in results_before for item in self.model.lasso_results))
             if completed:

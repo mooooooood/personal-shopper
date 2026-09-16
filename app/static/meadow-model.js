@@ -5,6 +5,34 @@ const coats = new Set(['white','cream','caramel','chocolate','silver','charcoal'
 function validCoat(rabbit) { return rabbit.coat === undefined || coats.has(rabbit.coat); }
 const identity=value=>Number.isSafeInteger(value)&&value>0;
 const between=(value,low,high)=>Number.isFinite(value)&&value>=low&&value<=high;
+const surpriseLimits = {
+  hero: [0, 0], pirates: [1, 0], ufo: [1, 0], carrot_rain: [0, 3], rain: [0, 0],
+  mushrooms: [3, 0], train: [3, 0], dinosaur: [0, 0], ghosts: [4, 0], king: [5, 1],
+};
+function validSurprise(state) {
+  const event = state.surprise;
+  if (event == null) return true; // Snapshots from before surprises are still readable.
+  if (typeof event !== 'object' || Array.isArray(event)
+    || !Object.hasOwn(surpriseLimits, event.kind) || !identity(event.id)
+    || !Number.isSafeInteger(event.seed) || !between(event.seed, 0, 2147483647)
+    || !between(event.x, 0, 1000) || !between(event.y, 0, 600)
+    || event.duration !== 24 || !between(event.elapsed, 0, 24) || event.elapsed === 24
+    || state.encounter != null) return false;
+  const [rabbitLimit, carrotLimit] = surpriseLimits[event.kind];
+  const validIds = (ids, limit) => Array.isArray(ids) && ids.length <= limit
+    && ids.every(identity) && new Set(ids).size === ids.length;
+  if (!validIds(event.rabbitIds, rabbitLimit) || !validIds(event.carrotIds, carrotLimit)) return false;
+  return event.rabbitIds.every(id => {
+    const rabbit = state.rabbits.find(item => item.id === id);
+    return rabbit && !rabbit.burrow && rabbit.pairId == null && rabbit.partnerId == null
+      && !['basket', 'burrow', 'roped', 'pairing'].includes(rabbit.state)
+      && !state.basket.some(item => item.id === id)
+      && !(state.lassos || []).some(rope => rope.rabbitId === id);
+  });
+}
+const copySurprise = event => event == null ? null : {
+  ...event, rabbitIds: [...event.rabbitIds], carrotIds: [...event.carrotIds],
+};
 function validBurrows(state) {
   const holes=state.burrows??[];
   if(!Array.isArray(holes)||(state.burrows!==undefined&&holes.length!==5)
@@ -102,6 +130,19 @@ export function createSnapshotBuffer(duration = 1000) {
       dog.y=priorDog.y+(dog.y-priorDog.y)*progress;
       dog.remaining=priorDog.remaining+(dog.remaining-priorDog.remaining)*progress;
     }
+    const surprise = copySurprise(latest.surprise);
+    const priorSurprise = start?.surprise;
+    if (surprise) {
+      // Use the same received-snapshot timeline as rabbit positions. Advancing
+      // this clock ahead of them would make a train leave its riders behind.
+      // Late polls hold the last confirmed scene instead of predicting an end.
+      const sameVisit = priorSurprise?.id === surprise.id && priorSurprise.kind === surprise.kind;
+      const elapsed = sameVisit
+        ? priorSurprise.elapsed + (surprise.elapsed - priorSurprise.elapsed) * progress
+        : surprise.elapsed;
+      surprise.elapsed = Math.min(surprise.duration,
+        sameVisit ? Math.max(priorSurprise.elapsed, elapsed) : elapsed);
+    }
     const priorRopes=new Map((start?.lassos||[]).map(rope=>[rope.id,rope]));
     const lassos=(latest.lassos||[]).map(rope=>{
       const prior=priorRopes.get(rope.id);
@@ -111,7 +152,7 @@ export function createSnapshotBuffer(duration = 1000) {
         castElapsed:rope.phase==='casting'?Math.min(rope.castDuration,rope.castElapsed+Math.max(0,now-receivedAt)/1000):rope.castElapsed,
         remaining:prior?prior.remaining+(rope.remaining-prior.remaining)*progress:rope.remaining};
     });
-    return { ...latest, time, encounter, dog, lassos, rabbits: latest.rabbits.map(rabbit => {
+    return { ...latest, time, encounter, dog, surprise, lassos, rabbits: latest.rabbits.map(rabbit => {
       const prior = previous.get(rabbit.id);
       // A complete underground trip can happen between two polls. The saved
       // trip counter also prevents a cross-map glide when those phases are missed.
@@ -149,6 +190,7 @@ export function createSnapshotBuffer(duration = 1000) {
       || !validLassos(state)
       || !validBurrows(state)
       || !validSeats(state)
+      || !validSurprise(state)
       || (state.raidedCount !== undefined && (!Number.isSafeInteger(state.raidedCount) || state.raidedCount < 0))) {
       throw new Error('Invalid meadow snapshot');
     }
@@ -160,7 +202,7 @@ export function createSnapshotBuffer(duration = 1000) {
       retiredEpochs.add(latest.epoch);
       if (retiredEpochs.size > 8) retiredEpochs.delete(retiredEpochs.values().next().value);
     }
-    latest = state;
+    latest = { ...state, surprise: copySurprise(state.surprise) };
     receivedAt = now;
     return true;
   }

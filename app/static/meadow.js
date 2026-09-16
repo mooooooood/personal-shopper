@@ -1,6 +1,6 @@
 import { drawRabbit } from './rabbit-art.js?v=meadow19';
 import { createAutoLassoPuller } from './lasso-pull.js?v=meadow16';
-import { createSnapshotBuffer, toWorldPoint } from './meadow-model.js?v=meadow16';
+import { createSnapshotBuffer, toWorldPoint } from './meadow-model.js?v=meadow20';
 import { seatName, seatPalette, recentSeatResult, seatResultMessage } from './meadow-seats.js?v=meadow16';
 
 import { drawCast, drawRetractingCast, drawLandingDust } from './meadow-cast.js?v=meadow16';
@@ -11,6 +11,8 @@ import { paintLandscape, paintForeground, drawMeadowAtmosphere, rabbitRenderScal
 
 import { drawPixelWildlife, drawPixelCarrot } from './meadow-sprites.js?v=meadow16';
 import { drawDog } from './meadow-dog.js?v=meadow16';
+import { drawSurpriseGround, drawSurpriseForeground, surpriseRabbitPose,
+  drawSurpriseRabbitEffect, surpriseCarrotScale, SURPRISE_COPY } from './meadow-surprises.js?v=meadow20';
 
 const byId = id => document.getElementById(id);
 
@@ -77,6 +79,12 @@ function startMeadow() {
   const foreground=document.createElement('canvas'),front=foreground.getContext('2d');
   const status = message => { byId('meadow-status').textContent = message; };
   const projected = item => ({...item, x:item.x / 1000 * W, y:item.y / 600 * H, renderScale:rabbitRenderScale(item.y)});
+  const displayedRabbit = (rabbit,state=rendered) => {
+    const position=projected(rabbit);
+    const effect=surpriseRabbitPose(rabbit,state?.surprise,{reducedMotion:reducedMotion.matches});
+    return {...position,groundY:position.y,surpriseLift:effect.lift*H/600,
+      y:position.y-effect.lift*H/600,cosmeticIdle:!state?.dog&&!state?.encounter&&effect.idle!==false};
+  };
   const playerId = (()=>{
     try {
       const saved=localStorage.getItem('meadow.player.v1');
@@ -137,7 +145,7 @@ function startMeadow() {
   }
   function emit(item, kind = 'heart', count = 3) {
     if(reducedMotion.matches)return;
-    const p = projected(item);
+    const p = displayedRabbit(item);
     for (let i = 0; i < count; i++) particles.push({x:p.x + (i-(count-1)/2)*14, y:p.y-25, age:-i*0.1, kind});
     particles = particles.slice(-60);
   }
@@ -161,7 +169,7 @@ function startMeadow() {
       const oldIds = new Set([...old.rabbits, ...old.basket].map(rabbit => rabbit.id));
       const babies = state.rabbits.filter(rabbit => !oldIds.has(rabbit.id) && !rabbit.adult);
       for (const rabbit of babies) emit(rabbit, 'heart', 5);
-      if (babies.length && !state.encounter && !ownLasso(state) && !outcome) status('A new baby, a surprise coat. Meet the meadow’s newest neighbour!');
+      if (babies.length && !state.encounter && !state.surprise && !ownLasso(state) && !outcome) status('A new baby, a surprise coat. Meet the meadow’s newest neighbour!');
     }
     if (changed && state.encounter && !overlayOpen()
       && (old?.encounter?.id !== state.encounter.id || old?.encounter?.phase !== state.encounter.phase)) {
@@ -184,12 +192,16 @@ function startMeadow() {
       status(`${seatName(state.mySeatId)} is yours. Your rope will bring rabbits back here.`);
     if (!old) {
       byId('meadow-loading').hidden = true;
-      if (!state.encounter && !state.dog) status('A little meadow to share. Choose a tool, or let the dog out for a run.');
+      if (!state.encounter && !state.dog && !state.surprise) status('A little meadow to share. Choose a tool, or let the dog out for a run.');
     }
     if(state.dog && old?.dog?.id!==state.dog.id && !overlayOpen())
       status('The dog is out! Nearby rabbits will hop away for 20 seconds.');
     else if(old?.dog && !state.dog && !overlayOpen())
       status('The dog has gone home. A quiet meadow again.');
+    if(state.surprise&&old?.surprise?.id!==state.surprise.id&&!overlayOpen()){
+      const note=SURPRISE_COPY[state.surprise.kind];status(`${note.title}. ${note.message}`);
+    }else if(old?.surprise&&!state.surprise&&!state.dog&&!state.encounter&&!ownLasso(state)&&!outcome&&!overlayOpen())
+      status('Our visitors have waved goodbye. The meadow is peaceful again.');
     connection(true);
     draw();
   }
@@ -306,13 +318,15 @@ function startMeadow() {
     // Hit the visible torso, rather than the ground point below the new sprite.
     const hitDistance = rabbit => Math.hypot(rabbit.x-position.x,
       rabbit.y-(rabbit.adult?24:16)*rabbit.renderScale-position.y);
-    const nearest = rendered.rabbits.filter(rabbit=>!rabbit.burrow).map(projected).sort((a,z) => hitDistance(a)-hitDistance(z))[0];
+    const nearest = rendered.rabbits.filter(rabbit=>!rabbit.burrow).map(rabbit=>displayedRabbit(rabbit)).sort((a,z) => hitDistance(a)-hitDistance(z))[0];
     if (!nearest || hitDistance(nearest)>radius) {
       status(tool==='net'?'A little closer to a rabbit. Carrots can bring them over.':'A peaceful little world. Choose Carrot or Lasso, or simply watch.');
       return;
     }
     if (tool === 'net') {
-      const aim=toWorldPoint(position.x,position.y+(nearest.adult?24:16)*nearest.renderScale,W,H);
+      // Aim at the server's ground point even when a bubble or saucer lifts the
+      // visible rabbit. Reserving the rope releases it from the shared surprise.
+      const aim=toWorldPoint(position.x,position.y+(nearest.adult?24:16)*nearest.renderScale+nearest.surpriseLift,W,H);
       action({action:'lasso',rabbitId:nearest.id,...aim});
     }
     else {
@@ -347,9 +361,10 @@ function startMeadow() {
     rendered=state;
     updateIndicators(state);
     drawMeadowAtmosphere(ctx,W,H,state.time,{reducedMotion:reducedMotion.matches});
+    drawSurpriseGround(ctx,state,{width:W,height:H,reducedMotion:reducedMotion.matches});
     drawBurrows(ctx,state,{width:W,height:H,reducedMotion:reducedMotion.matches});
     drawWildlifeCues(ctx,state,{width:W,height:H,reducedMotion:reducedMotion.matches});
-    for(const carrot of state.carrots){const p=projected(carrot);drawCarrot(ctx,p.x,p.y,1);}
+    for(const carrot of state.carrots){const p=projected(carrot);drawCarrot(ctx,p.x,p.y,surpriseCarrotScale(carrot,state.surprise));}
     const legacyHome=projected({x:500,y:380});
     const seatSize=Math.max(.52,Math.min(.9,W/580,H/560));
     for(const rope of state.lassos||[]){
@@ -365,12 +380,18 @@ function startMeadow() {
     if(state.dog)animals.push({kind:'dog',animal:state.dog});
     animals.sort((a,z)=>a.animal.y-z.animal.y);
     for(const {kind,animal} of animals){
-      const pose=projected(animal);
-      pose.cosmeticIdle=!state.dog&&!state.encounter;
+      const pose=kind==='rabbit'?displayedRabbit(animal,state):projected(animal);
       if(reducedMotion.matches){pose.moving=false;pose.motionAmount=0;pose.hopProgress=0;}
       const time=reducedMotion.matches?0:state.time;
       if(kind==='dog')drawDog(ctx,pose,time);
-      else drawBurrowRabbit(ctx,pose,time,drawRabbit,{reducedMotion:reducedMotion.matches});
+      else {
+        if(pose.surpriseLift>0){
+          ctx.save();ctx.globalAlpha=.2;ctx.fillStyle='#596344';
+          ctx.fillRect(Math.round(pose.x-16*pose.renderScale),Math.round(pose.groundY+2),Math.round(32*pose.renderScale),3);
+          ctx.restore();
+        }
+        drawBurrowRabbit(ctx,pose,time,drawPresentedRabbit,{reducedMotion:reducedMotion.matches});
+      }
     }
     for(const rope of state.lassos||[]){
       const rabbit=state.rabbits.find(rabbit=>rabbit.id===rope.rabbitId);
@@ -397,6 +418,9 @@ function startMeadow() {
     ctx.globalAlpha=1;
     if(!reducedMotion.matches)drawButterfly(ctx,W*(.32+Math.sin(state.time*.22)*.105),H*(.157+Math.sin(state.time*.39)*.037),state.time,'#e9b891');
     if(!reducedMotion.matches)drawButterfly(ctx,W*(.88+Math.sin(state.time*.27+3)*.038),H*(.688+Math.sin(state.time*.48)*.05),state.time+2,'#fbf4c8');
+    drawSurpriseForeground(ctx,state,{width:W,height:H,reducedMotion:reducedMotion.matches});
+    if(state.surprise)for(const rabbit of state.rabbits)
+      drawSurpriseRabbitEffect(ctx,displayedRabbit(rabbit,state),state.surprise,{reducedMotion:reducedMotion.matches});
     ctx.drawImage(foreground,0,0);
     if((cursor.visible&&tool||keyboardRing)&&connected){ctx.strokeStyle='#426947';ctx.lineWidth=2;ctx.setLineDash([5,5]);ctx.beginPath();ctx.ellipse(cursor.x,cursor.y,tool==='net'?31:24,tool==='net'?22:16,0,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);if(tool==='carrot')drawCarrot(ctx,cursor.x+20,cursor.y-22,.8);if(tool==='net')drawLasso(ctx,cursor.x+15,cursor.y-24);if(!tool)heart(ctx,cursor.x+16,cursor.y-25,6,'#d4828f');}
 
@@ -425,6 +449,10 @@ function startMeadow() {
   window.addEventListener('offline',()=>{connection(false);status('Offline for a moment. The shared meadow will reconnect when you are back.');});
   new ResizeObserver(resize).observe(canvas);
   controls();resize();poll();
+}
+
+function drawPresentedRabbit(c,rabbit,time,options={}){
+  drawRabbit(c,rabbit,time,{...options,shadow:options.shadow!==false&&!rabbit.surpriseLift});
 }
 
 function ellipse(c, x, y, rx, ry, color, angle = 0) {

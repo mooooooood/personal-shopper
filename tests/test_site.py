@@ -67,7 +67,7 @@ class SiteTests(unittest.TestCase):
         self.assertIn('id="meadow-canvas"', page)
         self.assertIn('tabindex="0"', page)
         self.assertIn('aria-describedby="meadow-help seat-status"', page)
-        for asset, media_type in [('meadow.css', 'text/css'), ('meadow.js', 'javascript'), ('meadow-model.js', 'javascript')]:
+        for asset, media_type in [('meadow.css', 'text/css'), ('meadow.js', 'javascript'), ('meadow-model.js', 'javascript'), ('meadow-surprises.js', 'javascript')]:
             response = self.client.get('/static/' + asset)
             self.assertEqual(response.status_code, 200, asset)
             self.assertIn(media_type, response.headers['content-type'], asset)

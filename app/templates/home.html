@@ -7,13 +7,13 @@
   <meta name="description" content="{{ site.description }}">
   <meta name="theme-color" content="#a5b574">
   {% if base_url %}<link rel="canonical" href="{{ base_url }}/">{% endif %}
-  <link rel="stylesheet" href="/static/meadow.css?v=meadow19">
+  <link rel="stylesheet" href="/static/meadow.css?v=meadow20">
 </head>
 <body>
   <main id="main" class="meadow-world" aria-label="The rabbit meadow">
     <h1 class="visually-hidden">Rabbit meadow</h1>
     <div id="meadow-stage" class="meadow-stage">
-      <canvas id="meadow-canvas" width="1000" height="600" tabindex="0" aria-label="Interactive rabbit meadow" aria-describedby="meadow-help seat-status">A shared two-dimensional meadow with eight catching seats, colourful baby rabbits and occasional visits from an eagle or a wolf. Watch other players cast their ropes and reel rabbits towards their seats. Everyone visits the same rabbits. Your browser needs canvas support to display the meadow.</canvas>
+      <canvas id="meadow-canvas" width="1000" height="600" tabindex="0" aria-label="Interactive rabbit meadow" aria-describedby="meadow-help seat-status">A shared two-dimensional meadow with eight catching seats, colourful baby rabbits and occasional visits from an eagle or a wolf, plus ten shared surprises including a tiny train, a flying saucer and a rabbit king. Watch other players cast their ropes and reel rabbits towards their seats. Everyone visits the same rabbits. Your browser needs canvas support to display the meadow.</canvas>
       <div id="meadow-loading" class="meadow-loading"><span class="loading-mark" aria-hidden="true">♧</span><span>Opening the garden gate…</span></div>
     </div>
 
@@ -39,7 +39,7 @@
       </div>
     </div>
     <p id="seat-status" class="visually-hidden">Joining a seat…</p>
-    <p id="meadow-help" class="visually-hidden">Choose Carrot or Lasso, then tap the meadow. Select the same tool again to put it away. With no tool selected, tap a rabbit to say hello. A landed lasso reels in automatically. Let dog out sends a shared dog to chase rabbits for 20 seconds. Use the arrow keys to aim, C / N to toggle Carrot or Lasso, Escape to put the tool away, and Enter or Space to use it.</p>
+    <p id="meadow-help" class="visually-hidden">Choose Carrot or Lasso, then tap the meadow. Select the same tool again to put it away. With no tool selected, tap a rabbit to say hello. A landed lasso reels in automatically. Let dog out sends a shared dog to chase rabbits for 20 seconds. Random meadow visitors appear for a short time, then leave; everyone sees the same surprise. Use the arrow keys to aim, C / N to toggle Carrot or Lasso, Escape to put the tool away, and Enter or Space to use it.</p>
     <noscript><section class="no-script-note"><h2>Your personal shopper in China.</h2><p>{{ site.about }}</p><a href="{{ site.contact.whatsapp_url }}" target="_blank" rel="noopener noreferrer">Message me on WhatsApp · {{ site.contact.whatsapp }}</a></section></noscript>
   </main>
 
@@ -80,6 +80,6 @@
     </div>
   </dialog>
 
-  <script type="module" src="/static/meadow.js?v=meadow19"></script>
+  <script type="module" src="/static/meadow.js?v=meadow20"></script>
 </body>
 </html>

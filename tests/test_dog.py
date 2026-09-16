@@ -148,7 +148,7 @@ class DogTests(unittest.TestCase):
                 self.assertEqual([rabbit['id'] for rabbit in restored.rabbits], list(range(2, 9)))
                 self.assertIsNone(restored.dog)
                 self.assertEqual(restored._next_dog_id, 1)
-                self.assertEqual(restored.export_state()['version'], 7)
+                self.assertEqual(restored.export_state()['version'], Meadow.schema_version)
 
     def test_public_dog_is_a_copy_and_invalid_saved_dogs_are_rejected(self):
         world = quiet_world()

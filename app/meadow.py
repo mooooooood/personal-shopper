@@ -12,15 +12,17 @@ import random
 import sqlite3
 from uuid import UUID, uuid4
 
+from .meadow_surprises import SurpriseMixin
 
-class Meadow:
+
+class Meadow(SurpriseMixin):
     width = 1000
     height = 600
     adult_age = 30
     nesting_duration = 2.8
     margin = 28
     pond = {"x": 825, "y": 135, "rx": 114, "ry": 72}
-    schema_version = 7
+    schema_version = 8
     dog_lifetime = 20.0
     dog_scare_radius = 160
     coats = ("white", "cream", "caramel", "chocolate", "silver", "charcoal", "ginger", "spotted")
@@ -74,6 +76,7 @@ class Meadow:
         ]
         self.rabbits = [self._make_rabbit(adult=True) for _ in range(initial_count)]
         self._next_encounter_in = self._between(15, 30)
+        self._init_surprises()
 
     @property
     def total_count(self):
@@ -189,7 +192,7 @@ class Meadow:
         eligible = [rabbit for rabbit in self.rabbits
                     if rabbit["adult"] and rabbit["cooldown"] <= 0 and not rabbit["pairId"]
                     and rabbit["state"] not in ("roped", "burrow") and rabbit["_burrowTarget"] is None
-                    and not self._dog_near(rabbit)]
+                    and not self._dog_near(rabbit) and not self._surprise_participant(rabbit)]
         while len(eligible) > 1 and vacancies > 0:
             first, second = min(((first, second) for i, first in enumerate(eligible)
                                  for second in eligible[i + 1:]),
@@ -230,7 +233,7 @@ class Meadow:
 
     def _plan_burrow(self, rabbit):
         """A few unoccupied rabbits occasionally choose a short underground trip."""
-        if (rabbit["burrow"] or rabbit["pairId"] or rabbit["state"] == "roped"
+        if (self._surprise_participant(rabbit) or rabbit["burrow"] or rabbit["pairId"] or rabbit["state"] == "roped"
                 or any(rope["rabbitId"] == rabbit["id"] for rope in self.lassos)
                 or sum(bool(item["burrow"] or item["_burrowTarget"]) for item in self.rabbits) >= self.burrow_limit):
             return False
@@ -264,13 +267,14 @@ class Meadow:
             rabbit["_burrowWait"] = self._between(20, 40)
             rabbit["cooldown"] = max(3, rabbit["cooldown"])
 
-    def update(self, dt):
+    def update(self, dt, *, schedule_surprises=True):
         """Advance one bounded step; the service decides whether visitors are present."""
         if not self._finite(dt) or dt <= 0:
             return
         dt = min(dt, .1)
         self.time += dt
         self._advance_dog(dt)
+        self._advance_surprise(dt, schedule=schedule_surprises)
         for carrot in self.carrots:
             carrot["remaining"] -= dt
         self.carrots[:] = [carrot for carrot in self.carrots if carrot["remaining"] > 0]
@@ -296,6 +300,8 @@ class Meadow:
                 rabbit["_burrowWait"] = max(5.0, rabbit["_burrowWait"])
                 self._advance_movement(rabbit, dt * 1.7)
                 continue
+            if self._advance_surprise_rabbit(rabbit, dt):
+                continue
             if rabbit["_burrowTarget"] is not None:
                 self._advance_movement(rabbit, dt)
                 if not rabbit["moving"]:
@@ -320,6 +326,8 @@ class Meadow:
                         self._move_toward(rabbit, self._safe_point(rabbit["x"] + self._between(-145, 145),
                                                                  rabbit["y"] + self._between(-105, 105)))
             self._advance_movement(rabbit, dt)
+        if self.surprise is not None and self.surprise["_routeIn"] <= 0:
+            self.surprise["_routeIn"] = .5
         self._advance_lassos(dt)
         lookup = {rabbit["id"]: rabbit for rabbit in self.rabbits}
         for pair in list(self.pairs):
@@ -343,6 +351,9 @@ class Meadow:
             self._pair_rabbits()
             self._pair_check = .5
         self._advance_encounter(dt)
+        # A participant can hop into dog range during this step. Remove it
+        # before publishing/saving so the dog always has priority.
+        self._prune_surprise_participants()
 
     def release_dog(self, seat_id):
         """Release one harmless shared dog from the visitor's occupied seat."""
@@ -356,6 +367,9 @@ class Meadow:
             "_path": [], "_routeIn": 0.0, "_scareIn": 0.0,
         }
         self._next_dog_id += 1
+        for rabbit in self.rabbits:
+            if self._dog_near(rabbit):
+                self._release_surprise_rabbit(rabbit)
         return "dog_released"
 
     def _dog_near(self, rabbit):
@@ -392,6 +406,7 @@ class Meadow:
         for rabbit in self.rabbits:
             if not self._dog_near(rabbit):
                 continue
+            self._release_surprise_rabbit(rabbit)
             pair = next((item for item in self.pairs if item["id"] == rabbit["pairId"]), None)
             if pair is not None:
                 self._end_pair(pair, interrupted=True)
@@ -406,7 +421,7 @@ class Meadow:
     def _start_encounter(self, kind=None):
         # The basket is a refuge. Wildlife never takes the last two on the grass.
         surface = [rabbit for rabbit in self.rabbits if rabbit["burrow"] is None]
-        if self.encounter is not None or len(surface) <= 2:
+        if self.encounter is not None or self.surprise is not None or len(surface) <= 2:
             return False
         kind = kind or self._random.choice(("eagle", "wolf"))
         if kind not in ("eagle", "wolf"):
@@ -461,6 +476,8 @@ class Meadow:
                       _routeIn=0.0, _leaveSpeed=length(route) / 3)
 
     def _advance_encounter(self, dt):
+        if self.surprise is not None:
+            return
         if self.encounter is None:
             self._next_encounter_in = max(0.0, self._next_encounter_in - dt)
             if self._next_encounter_in <= 0:
@@ -520,6 +537,7 @@ class Meadow:
         rabbit = next((rabbit for rabbit in self.rabbits if rabbit["id"] == rabbit_id), None)
         if rabbit is None or rabbit["burrow"] is not None:
             return None
+        self._release_surprise_rabbit(rabbit)
         pair = next((pair for pair in self.pairs if pair["id"] == rabbit["pairId"]), None)
         if pair:
             self._end_pair(pair, interrupted=True)
@@ -581,6 +599,7 @@ class Meadow:
         rabbit["moving"] = lasso["_lease"] > 1e-9 and bool(path)
 
     def _new_lasso(self, rabbit, owner, seat_id, anchor, aim, cast_duration):
+        self._release_surprise_rabbit(rabbit)
         rabbit["_burrowTarget"] = None
         lasso = {"id": self._next_lasso_id, "rabbitId": rabbit["id"],
                  "seatId": seat_id, "anchorX": anchor["x"], "anchorY": anchor["y"],
@@ -721,6 +740,7 @@ class Meadow:
                 "raidedCount": self.raided_count, "burrows": deepcopy(list(self.burrows)),
                 "encounter": deepcopy(public(self.encounter)) if self.encounter is not None else None,
                 "dog": public(self.dog) if self.dog is not None else None,
+                "surprise": public(self.surprise) if self.surprise is not None else None,
                 "totalCount": self.total_count, "rabbits": [public(rabbit) for rabbit in self.rabbits],
                 "basket": [public(rabbit) for rabbit in self.basket],
                 "carrots": deepcopy(self.carrots), "pairs": deepcopy(self.pairs),
@@ -735,6 +755,8 @@ class Meadow:
                          "maxRabbits": self.max_rabbits, "time": self.time, "bornCount": self.born_count,
                          "raidedCount": self.raided_count, "encounter": self.encounter,
                          "dog": self.dog, "nextDogId": self._next_dog_id,
+                         "surprise": self.surprise, "nextSurpriseId": self._next_surprise_id,
+                         "nextSurpriseIn": self._next_surprise_in, "surpriseQueue": self._surprise_queue,
                          "nextEncounterId": self._next_encounter_id, "nextEncounterIn": self._next_encounter_in,
                          "rabbits": self.rabbits, "basket": self.basket, "carrots": self.carrots,
                          "pairs": self.pairs, "receipts": self.receipts, "nextRabbitId": self._next_rabbit_id,
@@ -747,7 +769,7 @@ class Meadow:
         """Reject incomplete/corrupt state instead of silently deleting a shared world."""
         try:
             if (not isinstance(state, dict) or type(state["version"]) is not int
-                    or state["version"] not in (1, 2, 3, 4, 5, 6, cls.schema_version)):
+                    or state["version"] not in (1, 2, 3, 4, 5, 6, 7, cls.schema_version)):
                 raise ValueError("unsupported meadow state version")
             if state["width"] != cls.width or state["height"] != cls.height:
                 raise ValueError("unsupported meadow dimensions")
@@ -758,6 +780,11 @@ class Meadow:
             if state["version"] >= 7:
                 model.dog = deepcopy(state["dog"])
                 model._next_dog_id = state["nextDogId"]
+            if state["version"] >= 8 or "surprise" in state:
+                model.surprise = deepcopy(state["surprise"])
+                model._next_surprise_id = state["nextSurpriseId"]
+                model._next_surprise_in = state["nextSurpriseIn"]
+                model._surprise_queue = deepcopy(state["surpriseQueue"])
             for name in ("rabbits", "basket", "carrots", "pairs", "receipts"):
                 setattr(model, name, deepcopy(state[name]))
             if state["version"] < 6:
@@ -809,6 +836,9 @@ class Meadow:
             model._random.setstate(tuples(state["randomState"]))
             if state["version"] == 1:
                 model._next_encounter_in = model._between(15, 30)
+            if state["version"] < 8 and "surprise" not in state:
+                # Derive the first delay without consuming the saved random stream.
+                model._next_surprise_in = 20 + model._next_rabbit_id % 16
             model._validate_state()
             return model
         except (KeyError, TypeError, IndexError, OverflowError, ValueError) as error:
@@ -1043,6 +1073,7 @@ class Meadow:
             integer(next_id)
             if len(set(identities)) != len(identities) or next_id <= max(identities, default=0):
                 raise ValueError("invalid next identifier")
+        self._validate_surprises()
         if self.dog is not None:
             dog = self.dog
             if (not isinstance(dog, dict) or set(dog) != {
