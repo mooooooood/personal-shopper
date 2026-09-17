@@ -24,7 +24,7 @@ test('a stopped server rabbit still uses its legs while completing displayed mov
   assert.equal(halfway.moving,false);
   assert.equal(halfway.motionAmount,1);
   assert.ok(halfway.hopProgress >= 0 && halfway.hopProgress < 1);
-  assert.ok(buffer.sample(1900).rabbits[0].motionAmount < halfway.motionAmount);
+  assert.ok(buffer.sample(1950).rabbits[0].motionAmount < halfway.motionAmount);
   assert.equal(buffer.sample(2000).rabbits[0].motionAmount,0);
   assert.equal(buffer.sample(100000).rabbits[0].motionAmount,0);
 });

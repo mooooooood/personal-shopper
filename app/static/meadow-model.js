@@ -106,12 +106,14 @@ export function createSeededRandom(seed = 20260910) {
 
 export function createSnapshotBuffer(duration = 1000) {
   let latest = null, start = null, receivedAt = 0;
+  let playbackDuration = duration;
   const retiredEpochs = new Set();
   const smooth = value => { const x = Math.max(0, Math.min(1, value)); return x * x * (3 - 2 * x); };
 
   function sample(now) {
     if (!latest) return null;
-    const progress = Math.max(0, Math.min(1, (now - receivedAt) / duration));
+    const sinceReceived = Math.max(0, now - receivedAt);
+    const progress = Math.max(0, Math.min(1, sinceReceived / playbackDuration));
     const previous = new Map((start?.rabbits || []).map(rabbit => [rabbit.id, rabbit]));
     const time = start ? start.time + (latest.time - start.time) * progress : latest.time;
     let encounter = latest.encounter ? {...latest.encounter} : null;
@@ -165,8 +167,12 @@ export function createSnapshotBuffer(duration = 1000) {
       // alone, then settle before reaching the final received position.
       const travelling = old && Math.hypot(rabbit.x - old.x, rabbit.y - old.y) > .01;
       const priorMotion = Math.max(0, Math.min(1, old?.motionAmount || 0));
+      // Keep the gait alive across healthy polls. Only settle in the last
+      // 100 ms of buffered travel, when an overdue update may really leave
+      // us at rest. Never walk in place after the confirmed path runs out.
+      const settle = smooth((sinceReceived - Math.max(0, playbackDuration - 100)) / 100);
       const motionAmount = travelling
-        ? (priorMotion + (1 - priorMotion) * smooth(progress / .14)) * (1 - smooth((progress - .80) / .20))
+        ? (priorMotion + (1 - priorMotion) * smooth(progress / .14)) * (1 - settle)
         : priorMotion * (1 - smooth(progress / .20));
       return { ...rabbit, burrow,
         x: old ? old.x + (rabbit.x - old.x) * progress : rabbit.x,
@@ -177,7 +183,7 @@ export function createSnapshotBuffer(duration = 1000) {
     }) };
   }
 
-  function accept(state, now) {
+  function accept(state, now, timing = {}) {
     if (!state || typeof state.epoch !== 'string' || !Number.isSafeInteger(state.revision)
       || !Number.isFinite(state.time) || state.width !== 1000 || state.height !== 600
       || !Array.isArray(state.rabbits) || !Array.isArray(state.basket)
@@ -203,6 +209,11 @@ export function createSnapshotBuffer(duration = 1000) {
       if (retiredEpochs.size > 8) retiredEpochs.delete(retiredEpochs.values().next().value);
     }
     latest = { ...state, surprise: copySurprise(state.surprise) };
+    // Only periodic polling supplies this estimate. Frequent action replies
+    // preserve it, so pulling a rope cannot shorten everybody's buffer.
+    playbackDuration = Number.isFinite(timing.interpolationDuration)
+      ? Math.max(1000, Math.min(2500, timing.interpolationDuration))
+      : sameWorld ? playbackDuration : duration;
     receivedAt = now;
     return true;
   }

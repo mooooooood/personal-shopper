@@ -1,6 +1,7 @@
 import { drawRabbit } from './rabbit-art.js?v=meadow19';
 import { createAutoLassoPuller } from './lasso-pull.js?v=meadow16';
-import { createSnapshotBuffer, toWorldPoint } from './meadow-model.js?v=meadow20';
+import { createSnapshotBuffer, toWorldPoint } from './meadow-model.js?v=meadow21';
+import { createPollTiming } from './meadow-timing.js?v=meadow21';
 import { seatName, seatPalette, recentSeatResult, seatResultMessage } from './meadow-seats.js?v=meadow16';
 
 import { drawCast, drawRetractingCast, drawLandingDust } from './meadow-cast.js?v=meadow16';
@@ -69,7 +70,8 @@ else if (byId('meadow-loading')) {
 function startMeadow() {
   let W = 1000, H = 600, tool = null;
   const buffer = createSnapshotBuffer();
-  let frame = 0, lastTime = 0, particles = [];
+  const pollTiming = createPollTiming();
+  let frame = 0, lastTime = 0, lastPaintTime = 0, particles = [];
   let cursor = {x:500, y:300, visible:false}, keyboardRing = false;
   let connected = false, pending = false, polling = false, pollTimer = 0, failures = 0;
   let rendered = null, seatFeed = null;
@@ -112,12 +114,13 @@ function startMeadow() {
       connected&&!pending&&!document.hidden&&!overlayOpen());
   }
   function connection(ok) {
+    const changed = connected !== ok;
     if(ok && !connected && rendered)status('Back in the shared meadow.');
     connected = ok;
     followRope();
     if(!ok)byId('seat-status').textContent='Connection lost. Rejoining the meadow…';
     controls();
-    schedule();
+    if(changed)schedule();
   }
   function updateIndicators(state) {
     if (!state) return;
@@ -149,9 +152,9 @@ function startMeadow() {
     for (let i = 0; i < count; i++) particles.push({x:p.x + (i-(count-1)/2)*14, y:p.y-25, age:-i*0.1, kind});
     particles = particles.slice(-60);
   }
-  function accept(state) {
+  function accept(state, timing) {
     const old = buffer.latest;
-    const changed = buffer.accept(state, performance.now());
+    const changed = buffer.accept(state, performance.now(), timing);
     if(!changed){
       if(old?.epoch===state.epoch&&old.revision===state.revision)connection(true);
       return;
@@ -226,11 +229,19 @@ function startMeadow() {
   async function poll() {
     if (polling || document.hidden) return;
     polling = true;
+    const started = pollTiming.begin(performance.now());
+    const relaxed = overlayOpen();
+    let nextDelay = 1000;
     controls();
     try {
-      accept(await request('/api/meadow'));
+      const state = await request('/api/meadow');
+      const timing = relaxed || overlayOpen() || document.hidden
+        ? undefined : pollTiming.complete(started, performance.now());
+      nextDelay = timing?.delay ?? 1000;
+      accept(state, timing);
       failures = 0;
     } catch {
+      pollTiming.reset();
       failures++;
       connection(false);
       status('The connection is resting. Reconnecting to the shared meadow; tools will return when it does.');
@@ -238,7 +249,7 @@ function startMeadow() {
     } finally {
       polling = false;
       controls();
-      queuePoll(failures ? Math.min(15000, 1000 * 2 ** Math.min(failures,4)) : overlayOpen() ? 3000 : 1000);
+      queuePoll(failures ? Math.min(15000, 1000 * 2 ** Math.min(failures,4)) : overlayOpen() ? 3000 : nextDelay);
     }
   }
   function requestId() {
@@ -440,10 +451,23 @@ function startMeadow() {
     draw();
   }
   function canRun(){return connected&&!reducedMotion.matches&&!document.hidden&&!overlayOpen();}
-  function tick(now){frame=0;if(!canRun()){lastTime=0;return;}if(!lastTime)lastTime=now;const elapsed=now-lastTime;if(elapsed>=1000/30){lastTime=now;for(const p of particles)p.age+=Math.min(elapsed/1000,.1);particles=particles.filter(p=>p.age<1.6);draw();}frame=requestAnimationFrame(tick);}
-  function schedule(){if(frame)cancelAnimationFrame(frame);frame=0;lastTime=0;if(canRun())frame=requestAnimationFrame(tick);}
-  document.addEventListener('visibilitychange',()=>{followRope();clearTimeout(pollTimer);schedule();if(!document.hidden)poll();});
-  window.addEventListener('meadow-overlay-change',()=>{followRope();schedule();if(!overlayOpen())poll();});
+  function tick(now){
+    frame=0;
+    if(!canRun()){lastTime=lastPaintTime=0;return;}
+    if(!lastTime)lastTime=lastPaintTime=now;
+    const elapsed=now-lastTime,interval=1000/30;
+    if(elapsed>=interval){
+      // Keep the remainder so display refresh rounding cannot drop us to
+      // 20 fps. Particle ages still use actual time since the previous paint.
+      lastTime=now-elapsed%interval;
+      for(const p of particles)p.age+=Math.min((now-lastPaintTime)/1000,.1);
+      lastPaintTime=now;particles=particles.filter(p=>p.age<1.6);draw();
+    }
+    frame=requestAnimationFrame(tick);
+  }
+  function schedule(){if(frame)cancelAnimationFrame(frame);frame=0;lastTime=lastPaintTime=0;if(canRun())frame=requestAnimationFrame(tick);}
+  document.addEventListener('visibilitychange',()=>{pollTiming.reset();followRope();clearTimeout(pollTimer);schedule();if(!document.hidden)poll();});
+  window.addEventListener('meadow-overlay-change',()=>{pollTiming.reset();followRope();schedule();if(!overlayOpen())poll();});
   window.addEventListener('pagehide',()=>puller.update(buffer.latest?.myLassoId??null,false));
   window.addEventListener('online',()=>poll());
   window.addEventListener('offline',()=>{connection(false);status('Offline for a moment. The shared meadow will reconnect when you are back.');});
